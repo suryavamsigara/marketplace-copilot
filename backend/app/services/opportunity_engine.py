@@ -8,9 +8,10 @@ comparisons applied to the metrics computed in analytics_engine.py.
 Opportunity Score = Business Impact x Urgency x Confidence, normalized 0-100.
 See README "Opportunity Scoring" section for full methodology.
 """
-from datetime import date, timedelta
+from typing import Optional, List, Dict, Any
 from sqlalchemy.orm import Session
-from app.services import analytics_engine as ae
+from app.services.analytics_engine import AnalyticsEngine, pct_change
+from app.models.models import Marketplace, CompetitorPrice
 
 CONFIDENCE_WEIGHT = {"High": 1.0, "Medium": 0.75, "Low": 0.5}
 
@@ -31,8 +32,9 @@ def _severity_from_score(score: float) -> str:
     return "Low"
 
 
-def detect_stockout_risks(db: Session, days: int = 30) -> list:
-    rows = ae.product_table(db, days=days)
+def detect_stockout_risks(db: Session, days: int = 30, engine: Optional[AnalyticsEngine] = None) -> List[Dict[str, Any]]:
+    eng = engine or AnalyticsEngine(db, days=days)
+    rows = eng.product_table()
     opps = []
     max_revenue = max([r["revenue"] for r in rows], default=1) or 1
     for r in rows:
@@ -64,9 +66,10 @@ def detect_stockout_risks(db: Session, days: int = 30) -> list:
     return opps
 
 
-def detect_conversion_declines(db: Session, days: int = 30) -> list:
-    start, end, prev_start, prev_end = ae.default_period(db, days)
-    df = ae.sales_df(db, prev_start, end)
+def detect_conversion_declines(db: Session, days: int = 30, engine: Optional[AnalyticsEngine] = None) -> List[Dict[str, Any]]:
+    eng = engine or AnalyticsEngine(db, days=days)
+    start, end, prev_start, prev_end = eng.period
+    df = eng.get_raw_sales_df()
     if df.empty:
         return []
     opps = []
@@ -109,8 +112,9 @@ def detect_conversion_declines(db: Session, days: int = 30) -> list:
     return opps
 
 
-def detect_return_anomalies(db: Session, days: int = 30) -> list:
-    rows = ae.product_table(db, days=days)
+def detect_return_anomalies(db: Session, days: int = 30, engine: Optional[AnalyticsEngine] = None) -> List[Dict[str, Any]]:
+    eng = engine or AnalyticsEngine(db, days=days)
+    rows = eng.product_table()
     opps = []
     for r in rows:
         cat_avg = r["category_avg_return_rate"] or 0
@@ -141,8 +145,9 @@ def detect_return_anomalies(db: Session, days: int = 30) -> list:
     return opps
 
 
-def detect_marketplace_declines(db: Session, days: int = 30) -> list:
-    mkts = ae.marketplace_metrics(db, days=days)
+def detect_marketplace_declines(db: Session, days: int = 30, engine: Optional[AnalyticsEngine] = None) -> List[Dict[str, Any]]:
+    eng = engine or AnalyticsEngine(db, days=days)
+    mkts = eng.marketplace_metrics()
     opps = []
     for m in mkts:
         if m["revenue_growth_pct"] < -8:
@@ -154,7 +159,7 @@ def detect_marketplace_declines(db: Session, days: int = 30) -> list:
                 "opportunity_type": "marketplace_decline",
                 "severity": _severity_from_score(score),
                 "product_id": None,
-                "marketplace_id": None,  # resolved by caller via name lookup
+                "marketplace_id": None,
                 "marketplace_name": m["marketplace"],
                 "score": score,
                 "title": f"{m['marketplace']} revenue decline",
@@ -170,17 +175,17 @@ def detect_marketplace_declines(db: Session, days: int = 30) -> list:
     return opps
 
 
-def detect_pricing_opportunities(db: Session, days: int = 30) -> list:
-    from app.models.models import CompetitorPrice, Product
-    start, end, _, _ = ae.default_period(db, days)
+def detect_pricing_opportunities(db: Session, days: int = 30, engine: Optional[AnalyticsEngine] = None) -> List[Dict[str, Any]]:
+    eng = engine or AnalyticsEngine(db, days=days)
+    start, end, _, _ = eng.period
     rows = db.query(CompetitorPrice).filter(CompetitorPrice.date >= start, CompetitorPrice.date <= end).all()
     if not rows:
         return []
     latest_by_product = {}
     for r in rows:
-        latest_by_product[r.product_id] = r  # last one wins (rows ordered by date asc-ish)
+        latest_by_product[r.product_id] = r
 
-    prod_rows = {r["product_id"]: r for r in ae.product_table(db, days=days)}
+    prod_rows = {r["product_id"]: r for r in eng.product_table()}
     opps = []
     for pid, cp in latest_by_product.items():
         if cp.our_price <= cp.competitor_avg_price * 1.08:
@@ -213,8 +218,9 @@ def detect_pricing_opportunities(db: Session, days: int = 30) -> list:
     return opps
 
 
-def detect_excess_inventory(db: Session, days: int = 30) -> list:
-    rows = ae.product_table(db, days=days)
+def detect_excess_inventory(db: Session, days: int = 30, engine: Optional[AnalyticsEngine] = None) -> List[Dict[str, Any]]:
+    eng = engine or AnalyticsEngine(db, days=days)
+    rows = eng.product_table()
     opps = []
     for r in rows:
         dos = r["days_of_stock"]
@@ -243,22 +249,20 @@ def detect_excess_inventory(db: Session, days: int = 30) -> list:
     return opps
 
 
-def detect_high_traffic_low_orders(db: Session, days: int = 30) -> list:
-    """Distinct from conversion_decline: flags products with strong absolute
-    traffic but a conversion rate well below the category benchmark, even
-    without a period-over-period decline."""
-    rows = ae.product_table(db, days=days)
-    start, end, _, _ = ae.default_period(db, days)
-    df = ae.sales_df(db, start, end)
+def detect_high_traffic_low_orders(db: Session, days: int = 30, engine: Optional[AnalyticsEngine] = None) -> List[Dict[str, Any]]:
+    eng = engine or AnalyticsEngine(db, days=days)
+    rows = eng.product_table()
+    start, end, _, _ = eng.period
+    df = eng.get_sales_df(start=start, end=end)
     if df.empty:
         return []
     cat_conv = df.groupby("category").apply(
-        lambda g: (g["orders"].sum() / g["visits"].sum() * 100) if g["visits"].sum() else 0
+        lambda g: (g["orders"].sum() / g["visits"].sum() * 100) if g["visits"].sum() else 0.0
     ).to_dict()
     opps = []
     for r in rows:
         visits = df[df["product_id"] == r["product_id"]]["visits"].sum()
-        cat_avg_conv = cat_conv.get(r["category"], 0)
+        cat_avg_conv = cat_conv.get(r["category"], 0.0)
         if visits > df["visits"].mean() * 1.3 and cat_avg_conv > 0 and r["conversion_rate"] < cat_avg_conv * 0.6:
             urgency = min(1, (cat_avg_conv - r["conversion_rate"]) / max(cat_avg_conv, 0.1))
             impact = min(1, visits / (df["visits"].max() + 1))
@@ -282,9 +286,10 @@ def detect_high_traffic_low_orders(db: Session, days: int = 30) -> list:
     return opps
 
 
-def detect_revenue_concentration(db: Session, days: int = 30) -> list:
-    rows = ae.product_table(db, days=days)
-    total = sum(r["revenue"] for r in rows) or 1
+def detect_revenue_concentration(db: Session, days: int = 30, engine: Optional[AnalyticsEngine] = None) -> List[Dict[str, Any]]:
+    eng = engine or AnalyticsEngine(db, days=days)
+    rows = eng.product_table()
+    total = sum(r["revenue"] for r in rows) or 1.0
     top = sorted(rows, key=lambda r: r["revenue"], reverse=True)[:5]
     top_share = sum(r["revenue"] for r in top) / total
     opps = []
@@ -311,8 +316,9 @@ def detect_revenue_concentration(db: Session, days: int = 30) -> list:
     return opps
 
 
-def detect_underperformers(db: Session, days: int = 30) -> list:
-    rows = ae.product_table(db, days=days)
+def detect_underperformers(db: Session, days: int = 30, engine: Optional[AnalyticsEngine] = None) -> List[Dict[str, Any]]:
+    eng = engine or AnalyticsEngine(db, days=days)
+    rows = eng.product_table()
     opps = []
     if not rows:
         return opps
@@ -335,12 +341,13 @@ def detect_underperformers(db: Session, days: int = 30) -> list:
                 "recommendation": "Evaluate for promotion, re-merchandising, or catalog rationalization.",
                 "confidence": "Low",
             })
-    return opps[:8]  # cap noise
+    return opps[:8]
 
 
-def detect_sales_anomalies(db: Session, days: int = 30) -> list:
-    start, end, _, _ = ae.default_period(db, days)
-    df = ae.sales_df(db, start, end)
+def detect_sales_anomalies(db: Session, days: int = 30, engine: Optional[AnalyticsEngine] = None) -> List[Dict[str, Any]]:
+    eng = engine or AnalyticsEngine(db, days=days)
+    start, end, _, _ = eng.period
+    df = eng.get_sales_df(start=start, end=end)
     if df.empty:
         return []
     opps = []
@@ -375,26 +382,30 @@ def detect_sales_anomalies(db: Session, days: int = 30) -> list:
     return opps
 
 
-def detect_all_opportunities(db: Session, days: int = 30) -> list:
-    from app.models.models import Marketplace
+def detect_all_opportunities(db: Session, days: int = 30) -> List[Dict[str, Any]]:
+    """
+    Executes all detectors using a single shared AnalyticsEngine instance,
+    reusing loaded DataFrames and cached metrics with ZERO duplicate queries.
+    """
+    engine = AnalyticsEngine(db, days=days)
     mkt_ids = {m.name: m.id for m in db.query(Marketplace).all()}
 
     all_opps = []
-    all_opps += detect_stockout_risks(db, days)
-    all_opps += detect_conversion_declines(db, days)
-    all_opps += detect_return_anomalies(db, days)
+    all_opps += detect_stockout_risks(db, days, engine=engine)
+    all_opps += detect_conversion_declines(db, days, engine=engine)
+    all_opps += detect_return_anomalies(db, days, engine=engine)
 
-    mkt_declines = detect_marketplace_declines(db, days)
+    mkt_declines = detect_marketplace_declines(db, days, engine=engine)
     for o in mkt_declines:
         o["marketplace_id"] = mkt_ids.get(o.pop("marketplace_name", None))
     all_opps += mkt_declines
 
-    all_opps += detect_pricing_opportunities(db, days)
-    all_opps += detect_excess_inventory(db, days)
-    all_opps += detect_high_traffic_low_orders(db, days)
-    all_opps += detect_revenue_concentration(db, days)
-    all_opps += detect_underperformers(db, days)
-    all_opps += detect_sales_anomalies(db, days)
+    all_opps += detect_pricing_opportunities(db, days, engine=engine)
+    all_opps += detect_excess_inventory(db, days, engine=engine)
+    all_opps += detect_high_traffic_low_orders(db, days, engine=engine)
+    all_opps += detect_revenue_concentration(db, days, engine=engine)
+    all_opps += detect_underperformers(db, days, engine=engine)
+    all_opps += detect_sales_anomalies(db, days, engine=engine)
 
     all_opps.sort(key=lambda o: o["score"], reverse=True)
     return all_opps
