@@ -98,7 +98,7 @@ def chat(db: Session, message: str, history: list = None, engine: Optional[Analy
 
     try:
         from openai import OpenAI
-        client = OpenAI(api_key=LLM_API_KEY, base_url='https://api.deepseek.com')
+        client = OpenAI(api_key=LLM_API_KEY, base_url='https://api.deepseek.com', timeout=20.0)
 
         messages = [{"role": "system", "content": CHAT_SYSTEM_PROMPT}]
         for h in (history or [])[-6:]:
@@ -112,7 +112,7 @@ def chat(db: Session, message: str, history: list = None, engine: Optional[Analy
                 messages=messages,
                 tools=TOOL_SCHEMAS,
                 tool_choice="auto",
-                max_tokens=1000,
+                max_tokens=2000,
             )
             choice = resp.choices[0]
             msg = choice.message
@@ -134,15 +134,24 @@ def chat(db: Session, message: str, history: list = None, engine: Optional[Analy
                     })
                 continue
 
-            return {"answer": msg.content, "mode": "llm", "tool_calls": tool_call_log}
+            answer = (msg.content or "").strip()
+            if not answer and getattr(msg, "reasoning_content", None):
+                answer = msg.reasoning_content.strip()
+
+            return {"answer": answer, "mode": "llm", "tool_calls": tool_call_log}
 
         final_resp = client.chat.completions.create(
             model=LLM_MODEL,
             messages=messages,
-            max_tokens=1000,
+            max_tokens=2000,
         )
+        final_msg = final_resp.choices[0].message
+        final_answer = (final_msg.content or "").strip()
+        if not final_answer and getattr(final_msg, "reasoning_content", None):
+            final_answer = final_msg.reasoning_content.strip()
+
         return {
-            "answer": final_resp.choices[0].message.content,
+            "answer": final_answer,
             "mode": "llm",
             "tool_calls": tool_call_log,
         }
@@ -250,22 +259,29 @@ def explain(db: Session, subject_type: str, subject_id: str = None, engine: Opti
 
     try:
         from openai import OpenAI
-        client = OpenAI(api_key=LLM_API_KEY, base_url='https://api.deepseek.com')
+        client = OpenAI(api_key=LLM_API_KEY, base_url='https://api.deepseek.com', timeout=20.0)
 
         messages = [
             {"role": "system", "content": EXPLAIN_SYSTEM_PROMPT},
             {"role": "user", "content": prompt_context},
         ]
 
-        # Single direct completion without tool roundtrips
         resp = client.chat.completions.create(
             model=LLM_MODEL,
             messages=messages,
-            max_tokens=900,
+            max_tokens=2000,
         )
 
+        msg = resp.choices[0].message
+        answer = (msg.content or "").strip()
+        if not answer and getattr(msg, "reasoning_content", None):
+            answer = msg.reasoning_content.strip()
+
+        if not answer:
+            return _deterministic_fallback(db, prompt_context, engine=eng)
+
         return {
-            "answer": resp.choices[0].message.content,
+            "answer": answer,
             "mode": "llm",
             "tool_calls": [],
         }
