@@ -303,44 +303,48 @@ def main():
         )
 
         print(f"Generating {len(sales_rows)} daily sales rows...")
-        for r in sales_rows:
-            db.add(SalesDaily(
-                date=r["date"], product_id=product_objs[r["sku"]].id,
-                marketplace_id=mkt_objs[r["marketplace"]].id,
-                impressions=r["impressions"], clicks=r["clicks"], visits=r["visits"],
-                orders=r["orders"], units_sold=r["units_sold"], revenue=r["revenue"],
-                returns=r["returns"], ad_spend=r["ad_spend"],
-            ))
+        db.bulk_insert_mappings(SalesDaily, [
+            {
+                "date": r["date"], "product_id": product_objs[r["sku"]].id,
+                "marketplace_id": mkt_objs[r["marketplace"]].id,
+                "impressions": r["impressions"], "clicks": r["clicks"], "visits": r["visits"],
+                "orders": r["orders"], "units_sold": r["units_sold"], "revenue": r["revenue"],
+                "returns": r["returns"], "ad_spend": r["ad_spend"],
+            } for r in sales_rows
+        ])
 
         print(f"Generating {len(inventory_rows)} inventory rows...")
-        for r in inventory_rows:
-            db.add(Inventory(
-                date=r["date"], product_id=product_objs[r["sku"]].id,
-                marketplace_id=mkt_objs[r["marketplace"]].id,
-                stock=r["stock"], incoming_stock=r["incoming_stock"],
-            ))
+        db.bulk_insert_mappings(Inventory, [
+            {
+                "date": r["date"], "product_id": product_objs[r["sku"]].id,
+                "marketplace_id": mkt_objs[r["marketplace"]].id,
+                "stock": r["stock"], "incoming_stock": r["incoming_stock"],
+            } for r in inventory_rows
+        ])
 
         print(f"Generating {len(competitor_rows)} competitor price rows...")
-        for r in competitor_rows:
-            db.add(CompetitorPrice(
-                date=r["date"], product_id=product_objs[r["sku"]].id,
-                marketplace_id=mkt_objs[r["marketplace"]].id,
-                our_price=r["our_price"], competitor_avg_price=r["competitor_avg_price"],
-                competitor_min_price=r["competitor_min_price"],
-            ))
+        db.bulk_insert_mappings(CompetitorPrice, [
+            {
+                "date": r["date"], "product_id": product_objs[r["sku"]].id,
+                "marketplace_id": mkt_objs[r["marketplace"]].id,
+                "our_price": r["our_price"], "competitor_avg_price": r["competitor_avg_price"],
+                "competitor_min_price": r["competitor_min_price"],
+            } for r in competitor_rows
+        ])
 
         db.commit()
         print("Base data committed. Running opportunity detection...")
 
         opportunities = detect_all_opportunities(db)
-        for opp in opportunities:
-            db.add(Opportunity(
-                opportunity_type=opp["opportunity_type"], severity=opp["severity"],
-                product_id=opp.get("product_id"), marketplace_id=opp.get("marketplace_id"),
-                score=opp["score"], title=opp["title"],
-                evidence=json.dumps(opp["evidence"]), impact=opp.get("impact"),
-                recommendation=opp["recommendation"], confidence=opp["confidence"],
-            ))
+        db.bulk_insert_mappings(Opportunity, [
+            {
+                "opportunity_type": opp["opportunity_type"], "severity": opp["severity"],
+                "product_id": opp.get("product_id"), "marketplace_id": opp.get("marketplace_id"),
+                "score": opp["score"], "title": opp["title"],
+                "evidence": json.dumps(opp["evidence"]), "impact": opp.get("impact"),
+                "recommendation": opp["recommendation"], "confidence": opp["confidence"],
+            } for opp in opportunities
+        ])
         db.commit()
         print(f"Detected and stored {len(opportunities)} opportunities.")
         print("Seeding complete.")

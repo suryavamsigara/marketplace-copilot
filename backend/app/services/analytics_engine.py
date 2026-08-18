@@ -41,17 +41,17 @@ def sales_df(db: Session, start: date = None, end: date = None) -> pd.DataFrame:
 
 
 def inventory_df(db: Session, as_of: date = None) -> pd.DataFrame:
+    if as_of is None:
+        latest = db.query(Inventory.date).order_by(Inventory.date.desc()).first()
+        as_of = latest[0] if latest else None
+    if as_of is None:
+        return pd.DataFrame(columns=["date", "product_id", "marketplace_id", "stock", "incoming_stock"])
     q = db.query(
         Inventory.date, Inventory.product_id, Inventory.marketplace_id,
         Inventory.stock, Inventory.incoming_stock,
-    )
+    ).filter(Inventory.date == as_of)
     rows = q.all()
-    df = pd.DataFrame(rows, columns=["date", "product_id", "marketplace_id", "stock", "incoming_stock"])
-    if as_of is None and not df.empty:
-        as_of = df["date"].max()
-    if not df.empty:
-        df = df[df["date"] == as_of]
-    return df
+    return pd.DataFrame(rows, columns=["date", "product_id", "marketplace_id", "stock", "incoming_stock"])
 
 
 def latest_data_date(db: Session) -> date:
@@ -212,14 +212,17 @@ def product_table(db: Session, days: int = 30, marketplace: str = None, category
         return []
 
     inv = inventory_df(db)
-    cat_return_rates = df.groupby("category").apply(
-        lambda g: (g["returns"].sum() / g["units_sold"].sum() * 100) if g["units_sold"].sum() else 0
-    ).to_dict()
+    inv_map = inv.groupby("product_id")["stock"].sum().to_dict() if not inv.empty else {}
+    cat_returns = df.groupby("category")[["returns", "units_sold"]].sum().reset_index()
+    cat_return_rates = {
+        r["category"]: ((r["returns"] / r["units_sold"] * 100) if r["units_sold"] else 0)
+        for _, r in cat_returns.iterrows()
+    }
 
     rows = []
     for pid, sub in df.groupby("product_id"):
         k = summarize_kpis(sub)
-        p_inv = inv[inv["product_id"] == pid]["stock"].sum() if not inv.empty else 0
+        p_inv = inv_map.get(pid, 0)
         velocity = k["units_sold"] / max(days, 1)
         days_of_stock = round(p_inv / velocity, 1) if velocity > 0 else None
         avg_price = sub["price"].iloc[0]
