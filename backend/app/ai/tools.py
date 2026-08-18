@@ -1,87 +1,105 @@
 """
-Tool functions the AI Copilot can call. Every tool returns REAL data
-computed by the deterministic analytics/opportunity engines - the LLM never
-receives raw database rows and never calculates metrics itself.
+Essential AI Copilot Tools.
 
-Optimized with cached AnalyticsEngine instance sharing across tool executions.
+Consolidated into 4 high-density, essential tools to eliminate tool-calling bloat,
+reduce latency, and ensure maximum token efficiency.
 """
 import json
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from sqlalchemy.orm import Session
 from app.services.analytics_engine import AnalyticsEngine
-from app.services import opportunity_engine as oe
 from app.models.models import Opportunity, Product, Marketplace
 
 
-def get_dashboard_summary(db: Session, days: int = 30, engine: Optional[AnalyticsEngine] = None) -> dict:
+def get_executive_overview(days: int = 30, db: Optional[Session] = None, engine: Optional[AnalyticsEngine] = None) -> Dict[str, Any]:
+    """
+    Comprehensive executive summary: overall period-over-period KPIs,
+    marketplace channel share, and revenue momentum trend in a single call.
+    """
     eng = engine or AnalyticsEngine(db, days=days)
-    return eng.dashboard_summary()
+    summary = eng.dashboard_summary()
+    marketplaces = eng.marketplace_metrics()
+    trend = eng.revenue_trend(granularity="daily")
+
+    return {
+        "period": summary.get("period"),
+        "kpis": summary.get("kpis"),
+        "channel_breakdown": marketplaces,
+        "recent_trend": trend[-14:] if len(trend) > 14 else trend,
+    }
 
 
-def get_revenue_trend(db: Session, days: int = 30, engine: Optional[AnalyticsEngine] = None) -> dict:
-    eng = engine or AnalyticsEngine(db, days=days)
-    return {"trend": eng.revenue_trend()}
-
-
-def get_marketplace_metrics(db: Session, days: int = 30, engine: Optional[AnalyticsEngine] = None) -> dict:
-    eng = engine or AnalyticsEngine(db, days=days)
-    return {"marketplaces": eng.marketplace_metrics()}
-
-
-def get_marketplace_performance(db: Session, marketplace: str, days: int = 30, engine: Optional[AnalyticsEngine] = None) -> dict:
+def get_marketplace_performance(marketplace: str, days: int = 30, db: Optional[Session] = None, engine: Optional[AnalyticsEngine] = None) -> Dict[str, Any]:
+    """
+    Deep-dive intelligence for a specific selling channel (Amazon, Myntra, Flipkart, Ajio),
+    including channel growth, conversion, return rate, top SKUs, and underperforming SKUs.
+    """
     eng = engine or AnalyticsEngine(db, days=days)
     detail = eng.marketplace_detail(marketplace_name=marketplace)
-    return detail or {"error": f"Marketplace '{marketplace}' not found"}
+    if not detail:
+        return {"error": f"Marketplace '{marketplace}' not found"}
+    return detail
 
 
-def get_product_metrics(db: Session, product_id: int = None, product_name: str = None, days: int = 30, engine: Optional[AnalyticsEngine] = None) -> dict:
+def get_product_intelligence(
+    query: Optional[str] = None,
+    risk_status: Optional[str] = None,
+    limit: int = 10,
+    days: int = 30,
+    db: Optional[Session] = None,
+    engine: Optional[AnalyticsEngine] = None,
+) -> Dict[str, Any]:
+    """
+    Retrieves SKU analytics. If query is given (name or SKU), returns full unit economics,
+    margin, velocity, and stock depletion. Otherwise returns filtered product list (e.g. Critical stockouts).
+    """
     eng = engine or AnalyticsEngine(db, days=days)
-    if product_id:
-        return eng.product_detail(product_id=product_id) or {"error": "Product not found"}
-    if product_name:
+
+    if query:
+        # Search by SKU or product name
         rows = eng.product_table()
-        match = next((r for r in rows if product_name.lower() in r["product"].lower()), None)
+        q_clean = query.strip().lower()
+        match = next(
+            (r for r in rows if q_clean in r["product"].lower() or q_clean in r["sku"].lower()),
+            None,
+        )
         if match:
-            return eng.product_detail(product_id=match["product_id"])
-    return {"error": "Product not found"}
+            detail = eng.product_detail(product_id=match["product_id"])
+            if detail:
+                return {"product": detail}
+        return {"error": f"Product '{query}' not found"}
 
-
-def get_top_products(db: Session, days: int = 30, limit: int = 10, engine: Optional[AnalyticsEngine] = None) -> dict:
-    eng = engine or AnalyticsEngine(db, days=days)
+    # Filter by risk status or top revenue
     rows = eng.product_table()
-    return {"products": rows[:limit]}
+    if risk_status and risk_status != "All":
+        rows = [r for r in rows if r["status"].lower() == risk_status.lower()]
+
+    return {
+        "count": len(rows),
+        "products": rows[:limit],
+    }
 
 
-def get_underperforming_products(db: Session, days: int = 30, limit: int = 10, engine: Optional[AnalyticsEngine] = None) -> dict:
-    eng = engine or AnalyticsEngine(db, days=days)
-    rows = eng.product_table()
-    risky = [r for r in rows if r["status"] in ("Critical", "Needs Attention")]
-    risky.sort(key=lambda r: (r["status"] != "Critical", -(r["revenue_at_risk"] or 0)))
-    return {"products": risky[:limit]}
+def get_prioritized_opportunities(
+    severity: Optional[str] = None,
+    opportunity_type: Optional[str] = None,
+    limit: int = 10,
+    db: Optional[Session] = None,
+    engine: Optional[AnalyticsEngine] = None,
+) -> Dict[str, Any]:
+    """
+    Retrieves prioritized business opportunities (stockout risks, pricing gaps, return anomalies,
+    excess inventory, conversion drops) with evidence and recommended actions.
+    """
+    if db is None and engine is not None:
+        db = engine.db
 
-
-def get_inventory_risks(db: Session, days: int = 30, engine: Optional[AnalyticsEngine] = None) -> dict:
-    eng = engine or AnalyticsEngine(db, days=days)
-    rows = eng.product_table()
-    at_risk = [r for r in rows if r["days_of_stock"] is not None and r["days_of_stock"] < 14]
-    at_risk.sort(key=lambda r: r["days_of_stock"])
-    return {"at_risk_products": at_risk}
-
-
-def get_return_rate_anomalies(db: Session, days: int = 30, engine: Optional[AnalyticsEngine] = None) -> dict:
-    eng = engine or AnalyticsEngine(db, days=days)
-    return {"anomalies": oe.detect_return_anomalies(db, days=days, engine=eng)}
-
-
-def get_pricing_opportunities(db: Session, days: int = 30, engine: Optional[AnalyticsEngine] = None) -> dict:
-    eng = engine or AnalyticsEngine(db, days=days)
-    return {"opportunities": oe.detect_pricing_opportunities(db, days=days, engine=eng)}
-
-
-def get_business_opportunities(db: Session, severity: str = None, limit: int = 15, engine: Optional[AnalyticsEngine] = None) -> dict:
     q = db.query(Opportunity)
     if severity and severity != "All":
         q = q.filter(Opportunity.severity == severity)
+    if opportunity_type:
+        q = q.filter(Opportunity.opportunity_type == opportunity_type)
+
     opps = q.order_by(Opportunity.score.desc()).limit(limit).all()
     if not opps:
         return {"opportunities": []}
@@ -89,8 +107,16 @@ def get_business_opportunities(db: Session, severity: str = None, limit: int = 1
     prod_ids = [o.product_id for o in opps if o.product_id]
     mkt_ids = [o.marketplace_id for o in opps if o.marketplace_id]
 
-    prod_map = {p.id: p.name for p in db.query(Product.id, Product.name).filter(Product.id.in_(prod_ids)).all()} if prod_ids else {}
-    mkt_map = {m.id: m.name for m in db.query(Marketplace.id, Marketplace.name).filter(Marketplace.id.in_(mkt_ids)).all()} if mkt_ids else {}
+    prod_map = (
+        {p.id: p.name for p in db.query(Product.id, Product.name).filter(Product.id.in_(prod_ids)).all()}
+        if prod_ids
+        else {}
+    )
+    mkt_map = (
+        {m.id: m.name for m in db.query(Marketplace.id, Marketplace.name).filter(Marketplace.id.in_(mkt_ids)).all()}
+        if mkt_ids
+        else {}
+    )
 
     result = []
     for o in opps:
@@ -99,6 +125,7 @@ def get_business_opportunities(db: Session, severity: str = None, limit: int = 1
             ev = json.loads(o.evidence) if isinstance(o.evidence, str) else o.evidence
         except Exception:
             ev = [str(o.evidence)]
+
         result.append({
             "id": o.id,
             "type": o.opportunity_type,
@@ -107,84 +134,80 @@ def get_business_opportunities(db: Session, severity: str = None, limit: int = 1
             "title": o.title,
             "entity": entity,
             "evidence": ev,
+            "impact": o.impact,
             "recommendation": o.recommendation,
             "confidence": o.confidence,
         })
     return {"opportunities": result}
 
 
-def compare_periods(db: Session, days: int = 30, engine: Optional[AnalyticsEngine] = None) -> dict:
-    eng = engine or AnalyticsEngine(db, days=days)
-    return eng.dashboard_summary()
-
-
 TOOL_REGISTRY = {
-    "get_dashboard_summary": get_dashboard_summary,
-    "get_revenue_trend": get_revenue_trend,
-    "get_marketplace_metrics": get_marketplace_metrics,
+    "get_executive_overview": get_executive_overview,
     "get_marketplace_performance": get_marketplace_performance,
-    "get_product_metrics": get_product_metrics,
-    "get_top_products": get_top_products,
-    "get_underperforming_products": get_underperforming_products,
-    "get_inventory_risks": get_inventory_risks,
-    "get_return_rate_anomalies": get_return_rate_anomalies,
-    "get_pricing_opportunities": get_pricing_opportunities,
-    "get_business_opportunities": get_business_opportunities,
-    "compare_periods": compare_periods,
+    "get_product_intelligence": get_product_intelligence,
+    "get_prioritized_opportunities": get_prioritized_opportunities,
 }
 
 TOOL_SCHEMAS = [
-    {"type": "function", "function": {
-        "name": "get_dashboard_summary", "description": "Get overall KPIs (revenue, orders, conversion, AOV, return rate) with period-over-period change.",
-        "parameters": {"type": "object", "properties": {"days": {"type": "integer", "description": "Lookback window in days"}}},
-    }},
-    {"type": "function", "function": {
-        "name": "get_revenue_trend", "description": "Get the daily revenue/orders/units trend series.",
-        "parameters": {"type": "object", "properties": {"days": {"type": "integer"}}},
-    }},
-    {"type": "function", "function": {
-        "name": "get_marketplace_metrics", "description": "Get performance metrics for all marketplaces (Amazon, Myntra, Flipkart, Ajio).",
-        "parameters": {"type": "object", "properties": {"days": {"type": "integer"}}},
-    }},
-    {"type": "function", "function": {
-        "name": "get_marketplace_performance", "description": "Get detailed performance for one named marketplace.",
-        "parameters": {"type": "object", "properties": {
-            "marketplace": {"type": "string"}, "days": {"type": "integer"}}, "required": ["marketplace"]},
-    }},
-    {"type": "function", "function": {
-        "name": "get_product_metrics", "description": "Get detailed metrics for one product by id or name.",
-        "parameters": {"type": "object", "properties": {
-            "product_id": {"type": "integer"}, "product_name": {"type": "string"}, "days": {"type": "integer"}}},
-    }},
-    {"type": "function", "function": {
-        "name": "get_top_products", "description": "Get the highest-revenue products.",
-        "parameters": {"type": "object", "properties": {"days": {"type": "integer"}, "limit": {"type": "integer"}}},
-    }},
-    {"type": "function", "function": {
-        "name": "get_underperforming_products", "description": "Get products flagged Needs Attention or Critical, ranked by revenue at risk.",
-        "parameters": {"type": "object", "properties": {"days": {"type": "integer"}, "limit": {"type": "integer"}}},
-    }},
-    {"type": "function", "function": {
-        "name": "get_inventory_risks", "description": "Get products with fewer than 14 days of inventory remaining.",
-        "parameters": {"type": "object", "properties": {"days": {"type": "integer"}}},
-    }},
-    {"type": "function", "function": {
-        "name": "get_return_rate_anomalies", "description": "Get products with return rates far above their category benchmark.",
-        "parameters": {"type": "object", "properties": {"days": {"type": "integer"}}},
-    }},
-    {"type": "function", "function": {
-        "name": "get_pricing_opportunities", "description": "Get products priced materially above competitor benchmarks.",
-        "parameters": {"type": "object", "properties": {"days": {"type": "integer"}}},
-    }},
-    {"type": "function", "function": {
-        "name": "get_business_opportunities", "description": "Get the ranked list of detected business opportunities (all types), optionally filtered by severity.",
-        "parameters": {"type": "object", "properties": {
-            "severity": {"type": "string", "enum": ["Critical", "High", "Medium", "Low"]}, "limit": {"type": "integer"}}},
-    }},
-    {"type": "function", "function": {
-        "name": "compare_periods", "description": "Compare current period KPIs against the previous period of equal length.",
-        "parameters": {"type": "object", "properties": {"days": {"type": "integer"}}},
-    }},
+    {
+        "type": "function",
+        "function": {
+            "name": "get_executive_overview",
+            "description": "Get high-level business performance: overall KPIs (revenue, orders, conversion, AOV, return rate with % changes), marketplace breakdown, and daily trend in ONE call.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "days": {"type": "integer", "description": "Lookback window in days (default: 30)"}
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_marketplace_performance",
+            "description": "Get deep-dive diagnostic for a specific marketplace channel (Amazon, Myntra, Flipkart, Ajio), including revenue growth, top SKUs, and underperforming SKUs.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "marketplace": {"type": "string", "description": "Name of the channel: Amazon | Myntra | Flipkart | Ajio"},
+                    "days": {"type": "integer", "description": "Lookback window in days (default: 30)"},
+                },
+                "required": ["marketplace"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_product_intelligence",
+            "description": "Lookup SKU unit economics and inventory depletion for a specific product, or list top/at-risk products across the catalog.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "SKU code or product name to look up specifically (e.g. 'Air Runner 200')"},
+                    "risk_status": {"type": "string", "enum": ["Critical", "Needs Attention", "Healthy"], "description": "Filter products by health status (e.g. Critical for stockouts)"},
+                    "limit": {"type": "integer", "description": "Max number of products to return (default: 10)"},
+                    "days": {"type": "integer", "description": "Lookback window in days (default: 30)"},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_prioritized_opportunities",
+            "description": "Get prioritized operational issues and revenue opportunities (stockout risks, pricing gaps, return rate anomalies, excess inventory, sales drops) ranked by score.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "severity": {"type": "string", "enum": ["Critical", "High", "Medium", "Low"], "description": "Filter by urgency severity"},
+                    "opportunity_type": {"type": "string", "description": "Filter by type (e.g. stock_out_risk, pricing_competitiveness, return_rate_anomaly)"},
+                    "limit": {"type": "integer", "description": "Max opportunities to return (default: 10)"},
+                },
+            },
+        },
+    },
 ]
 
 
@@ -199,9 +222,8 @@ def call_tool(name: str, args: dict, db: Session, engine: Optional[AnalyticsEngi
     try:
         return fn(**tool_args)
     except TypeError as e:
-        # Fallback if function signature mismatch
+        tool_args.pop("engine", None)
         try:
-            tool_args.pop("engine", None)
             return fn(**tool_args)
         except Exception as inner_e:
             return {"error": str(inner_e)}

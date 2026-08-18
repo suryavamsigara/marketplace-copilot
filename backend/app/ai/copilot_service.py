@@ -1,12 +1,9 @@
 """
 AI Copilot orchestration: React frontend -> FastAPI -> this service -> LLM API.
 
-The LLM is given a set of read-only tools backed by the deterministic
-analytics/opportunity engines. It calls tools to gather real evidence, then
-produces a structured, evidence-grounded answer. If no LLM_API_KEY is
-configured (or the call fails), the copilot falls back to a deterministic
-summary built directly from the analytics/opportunity engines, and the
-response clearly states that AI reasoning is unavailable.
+The LLM is given a set of 4 high-density, read-only tools backed by the deterministic
+analytics/opportunity engines. It calls at most 1-2 tools to gather real evidence, then
+produces a structured, evidence-grounded answer.
 """
 import json
 from typing import Optional
@@ -16,22 +13,19 @@ from app.ai.tools import TOOL_SCHEMAS, call_tool
 from app.services.analytics_engine import AnalyticsEngine
 from app.services import opportunity_engine as oe
 
-SYSTEM_PROMPT = """You are an internal marketplace business analyst embedded in the \
-Marketplace Performance Copilot product.
+SYSTEM_PROMPT = """You are the Marketplace Performance Copilot — an expert AI operations analyst embedded in an internal marketplace BI tool.
 
-Rules:
-1. Only use data returned by the provided tools. Never invent metrics.
-2. Explain findings using evidence pulled from tool results.
-3. Distinguish observations (what the data shows) from hypotheses (what might explain it).
-4. Do not claim causation unless the data clearly establishes it - otherwise say \
-"likely contributor" or "requires investigation".
-5. Prioritize recommendations by business impact and urgency.
-6. State important assumptions explicitly (e.g. revenue-at-risk is an estimate, not a forecast).
-7. Be concise but useful - prefer specifics over generic advice.
-8. Always give specific, actionable next steps.
-9. If the available data is insufficient to answer, say so plainly instead of guessing.
+CRITICAL EFFICIENCY & TOOL SELECTION RULES:
+1. Tool Calling Budget: Call at most 1 to 2 tools per response. NEVER call multiple tools in a loop when one tool satisfies the question.
+2. Tool Routing Guide:
+   - For general health, "what changed", revenue declines, or period comparisons -> Call `get_executive_overview(days=30)`. (This single tool already contains KPIs, channel growth, and trend data!).
+   - For channel-specific performance (Amazon, Myntra, Flipkart, Ajio) -> Call `get_marketplace_performance(marketplace="...")`.
+   - For SKU, catalog, inventory, or stock-out lookups -> Call `get_product_intelligence(query="..." or risk_status="Critical")`.
+   - For actionable business tasks, risks, pricing gaps, return spikes, or opportunities -> Call `get_prioritized_opportunities()`.
+3. Strict Grounding: Every metric, number, and percentage in your response MUST come from the tool output. Never hallucinate or calculate ungrounded numbers.
+4. Grounded Reasoning: Distinguish observed metrics from hypotheses. State likely explanations and concrete next steps.
 
-Format your final answer in this structure using Markdown headings:
+Format your response in clean Markdown with these sections:
 ## Summary
 ## Main Drivers
 ## Evidence
@@ -90,17 +84,22 @@ def chat(db: Session, message: str, history: list = None, engine: Optional[Analy
         messages.append({"role": "user", "content": message})
 
         tool_call_log = []
-        for _ in range(5):  # bounded tool-calling loop
+        # Max 2 tool-calling iterations to enforce lean latency
+        for _ in range(2):
             resp = client.chat.completions.create(
-                model=LLM_MODEL, messages=messages, tools=TOOL_SCHEMAS, tool_choice="auto",
-                max_tokens=1200,
+                model=LLM_MODEL,
+                messages=messages,
+                tools=TOOL_SCHEMAS,
+                tool_choice="auto",
+                max_tokens=1000,
             )
             choice = resp.choices[0]
             msg = choice.message
 
             if msg.tool_calls:
                 messages.append({
-                    "role": "assistant", "content": msg.content or "",
+                    "role": "assistant",
+                    "content": msg.content or "",
                     "tool_calls": [tc.model_dump() for tc in msg.tool_calls],
                 })
                 for tc in msg.tool_calls:
@@ -108,15 +107,26 @@ def chat(db: Session, message: str, history: list = None, engine: Optional[Analy
                     result = call_tool(tc.function.name, args, db=db, engine=eng)
                     tool_call_log.append({"tool": tc.function.name, "args": args})
                     messages.append({
-                        "role": "tool", "tool_call_id": tc.id,
-                        "content": json.dumps(result, default=str)[:6000],
+                        "role": "tool",
+                        "tool_call_id": tc.id,
+                        "content": json.dumps(result, default=str)[:5000],
                     })
                 continue
 
             return {"answer": msg.content, "mode": "llm", "tool_calls": tool_call_log}
 
-        return {"answer": "I gathered evidence but couldn't finalize a response in time. Please try again.",
-                "mode": "llm", "tool_calls": tool_call_log}
+        # If 2 iterations completed and final content available:
+        final_resp = client.chat.completions.create(
+            model=LLM_MODEL,
+            messages=messages,
+            max_tokens=1000,
+        )
+        return {
+            "answer": final_resp.choices[0].message.content,
+            "mode": "llm",
+            "tool_calls": tool_call_log,
+        }
+
     except Exception as e:
         fb = _deterministic_fallback(db, message, engine=eng)
         fb["error"] = f"AI analysis unavailable ({type(e).__name__}); showing deterministic fallback."
