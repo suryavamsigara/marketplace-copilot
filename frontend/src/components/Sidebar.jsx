@@ -91,27 +91,24 @@ export default function Sidebar() {
               <button
                 key={item.id}
                 onClick={() => handleNavClick(item.id)}
-                className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-left text-sm font-medium transition-all group ${
-                  isActive
-                    ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30 shadow-sm shadow-amber-500/10'
+                className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-left text-sm font-medium transition-all group ${isActive
+                    ? 'bg-slate-800 text-slate-100 border border-slate-700/50'
                     : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900 border border-transparent'
-                }`}
+                  }`}
               >
                 <div className="flex items-center space-x-3">
                   <Icon
-                    className={`w-4 h-4 transition-colors ${
-                      isActive ? 'text-amber-400' : 'text-slate-400 group-hover:text-slate-300'
-                    }`}
+                    className={`w-4 h-4 transition-colors ${isActive ? 'text-amber-400' : 'text-slate-400 group-hover:text-slate-300'
+                      }`}
                   />
                   <span>{item.label}</span>
                 </div>
                 {item.badge && (
                   <span
-                    className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
-                      isActive
+                    className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${isActive
                         ? 'bg-amber-400 text-slate-950'
                         : 'bg-slate-800 text-slate-400 group-hover:bg-slate-700'
-                    }`}
+                      }`}
                   >
                     {item.badge}
                   </span>

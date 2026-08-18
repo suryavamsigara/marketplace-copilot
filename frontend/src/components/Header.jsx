@@ -60,7 +60,7 @@ export default function Header() {
         <h2 className="text-lg font-bold text-slate-100 tracking-tight flex items-center space-x-2">
           <span>{meta.title}</span>
           {activeTab === 'overview' && (
-            <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20">
+            <span className="text-[11px] font-medium px-2 py-0.5 rounded-md bg-emerald-950/40 text-emerald-400 border border-emerald-500/20">
               Live Operations
             </span>
           )}
@@ -148,7 +148,7 @@ export default function Header() {
               'Deep dive into current period revenue drivers, market shifts, and priority actions'
             )
           }
-          className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-semibold text-xs shadow-md shadow-amber-500/20 transition-all hover:scale-[1.02]"
+          className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-medium text-xs transition-colors shadow-sm"
         >
           <Sparkles className="w-3.5 h-3.5" />
           <span>Explain Period</span>
