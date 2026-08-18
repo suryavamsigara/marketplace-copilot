@@ -57,6 +57,13 @@ export const api = {
     return fetchJson(`/api/marketplaces/${encodeURIComponent(name)}?days=${days}`);
   },
 
+  createMarketplace: (data) => {
+    return fetchJson('/api/marketplaces', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
   // Products
   getProducts: ({
     days = 30,
@@ -87,6 +94,46 @@ export const api = {
     return fetchJson(`/api/products/${productId}?days=${days}`);
   },
 
+  createProduct: (data) => {
+    return fetchJson('/api/products', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  updateProduct: (productId, data) => {
+    return fetchJson(`/api/products/${productId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  deleteProduct: (productId) => {
+    return fetchJson(`/api/products/${productId}`, {
+      method: 'DELETE',
+    });
+  },
+
+  // Inventory
+  getInventoryRisks: ({ days = 30 } = {}) => {
+    return fetchJson(`/api/inventory/risks?days=${days}`);
+  },
+
+  logInventory: (data) => {
+    return fetchJson('/api/inventory', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  // Sales
+  recordSales: (data) => {
+    return fetchJson('/api/sales', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
   // Opportunities
   getOpportunities: ({
     severity,
@@ -109,11 +156,6 @@ export const api = {
 
   getOpportunityDetail: (opportunityId) => {
     return fetchJson(`/api/opportunities/${opportunityId}`);
-  },
-
-  // Inventory
-  getInventoryRisks: ({ days = 30 } = {}) => {
-    return fetchJson(`/api/inventory/risks?days=${days}`);
   },
 
   // AI Copilot

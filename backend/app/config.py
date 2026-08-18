@@ -10,7 +10,7 @@ if not DATABASE_URL:
     DATABASE_URL = "sqlite:///./marketplace_copilot.db"
 
 LLM_API_KEY = os.getenv("LLM_API_KEY", "").strip()
-LLM_MODEL = os.getenv("LLM_MODEL", "gpt-4o-mini").strip()
+LLM_MODEL = os.getenv("LLM_MODEL", "deepseek-v4-flash").strip()
 
 ALLOWED_ORIGINS = [
     o.strip() for o in os.getenv("ALLOWED_ORIGINS", "http://localhost:5173").split(",") if o.strip()

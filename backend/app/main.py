@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import ALLOWED_ORIGINS
-from app.routers import dashboard, marketplaces, products, opportunities, inventory, copilot
+from app.routers import dashboard, marketplaces, products, opportunities, inventory, copilot, sales
 
 app = FastAPI(
     title="Marketplace Performance Copilot API",
@@ -22,6 +22,7 @@ app.include_router(marketplaces.router)
 app.include_router(products.router)
 app.include_router(opportunities.router)
 app.include_router(inventory.router)
+app.include_router(sales.router)
 app.include_router(copilot.router)
 
 
