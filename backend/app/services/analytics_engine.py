@@ -16,7 +16,7 @@ from typing import Optional, Dict, Any, List, Tuple
 import pandas as pd
 import numpy as np
 from sqlalchemy.orm import Session
-from app.models.models import SalesDaily, Inventory, Product, Marketplace, CompetitorPrice
+from app.models.models import SalesDaily, Inventory, Product, Marketplace, CompetitorPrice, Opportunity
 
 
 def pct_change(curr: float, prev: float) -> float:
@@ -255,13 +255,15 @@ class AnalyticsEngine:
         self._dashboard_summary_cache = result
         return result
 
-    def revenue_trend(self, granularity: str = "daily") -> List[Dict[str, Any]]:
+    def revenue_trend(self, granularity: str = "daily", marketplace: Optional[str] = None) -> List[Dict[str, Any]]:
         """Aggregates revenue and volume over the current period by day or week."""
-        if granularity in self._revenue_trend_cache:
-            return self._revenue_trend_cache[granularity]
+        mkt = marketplace or self.marketplace
+        cache_key = f"{granularity}_{mkt}_{self.category}"
+        if cache_key in self._revenue_trend_cache:
+            return self._revenue_trend_cache[cache_key]
 
         start, end, _, _ = self.period
-        df = self.get_sales_df(start=start, end=end, marketplace=self.marketplace, category=self.category)
+        df = self.get_sales_df(start=start, end=end, marketplace=mkt, category=self.category)
         if df.empty:
             return []
 
@@ -289,7 +291,7 @@ class AnalyticsEngine:
             }
             for _, r in grp.iterrows()
         ]
-        self._revenue_trend_cache[granularity] = result
+        self._revenue_trend_cache[cache_key] = result
         return result
 
     def marketplace_metrics(self) -> List[Dict[str, Any]]:
@@ -352,6 +354,77 @@ class AnalyticsEngine:
         sorted_results = sorted(results, key=lambda r: r["revenue"], reverse=True)
         self._marketplace_metrics_cache = sorted_results
         return sorted_results
+
+    def marketplace_detail(self, marketplace_name: str) -> Optional[Dict[str, Any]]:
+        """
+        Ultra-fast single-pass computation of marketplace detail, revenue trend,
+        top & worst performing products, and associated opportunities.
+        """
+        all_mkts = self.marketplace_metrics()
+        detail = next((m for m in all_mkts if m["marketplace"] == marketplace_name), None)
+        if not detail:
+            return None
+
+        # 1. Channel Revenue Trend
+        trend = self.revenue_trend(marketplace=marketplace_name)
+
+        # 2. Top & Worst Products directly from in-memory slice
+        start, end, _, _ = self.period
+        df = self.get_sales_df(start=start, end=end, marketplace=marketplace_name)
+        inv = self.get_inventory_df()
+        inv_map = inv.groupby("product_id")["stock"].sum().to_dict() if not inv.empty else {}
+
+        prod_list = []
+        for pid, sub in df.groupby("product_id"):
+            k = self.summarize_kpis(sub)
+            stock = inv_map.get(pid, 0)
+            velocity = k["units_sold"] / max(self.days, 1)
+            dos = round(stock / velocity, 1) if velocity > 0 else None
+            status = "Healthy"
+            if dos is not None and dos < 7:
+                status = "Critical"
+            elif dos is not None and dos < 14:
+                status = "Needs Attention"
+
+            prod_list.append({
+                "product_id": int(pid),
+                "sku": str(sub["sku"].iloc[0]),
+                "product": str(sub["product_name"].iloc[0]),
+                "category": str(sub["category"].iloc[0]),
+                "revenue": k["revenue"],
+                "units_sold": k["units_sold"],
+                "conversion_rate": k["conversion_rate"],
+                "days_of_stock": dos,
+                "status": status,
+            })
+
+        top_products = sorted(prod_list, key=lambda p: p["revenue"], reverse=True)[:5]
+        worst_products = sorted(prod_list, key=lambda p: p["revenue"])[:5]
+
+        # 3. Channel Opportunities in a fast targeted query
+        mkt_row = self.db.query(Marketplace.id).filter(Marketplace.name == marketplace_name).first()
+        mkt_id = mkt_row[0] if mkt_row else None
+        opps = []
+        if mkt_id:
+            opp_rows = (
+                self.db.query(Opportunity.id, Opportunity.opportunity_type, Opportunity.severity, Opportunity.title, Opportunity.score)
+                .filter(Opportunity.marketplace_id == mkt_id)
+                .order_by(Opportunity.score.desc())
+                .limit(5)
+                .all()
+            )
+            opps = [
+                {"id": r[0], "type": r[1], "severity": r[2], "title": r[3], "score": float(r[4])}
+                for r in opp_rows
+            ]
+
+        return {
+            "marketplace": detail,
+            "revenue_trend": trend,
+            "top_products": top_products,
+            "worst_products": worst_products,
+            "opportunities": opps,
+        }
 
     def product_table(self) -> List[Dict[str, Any]]:
         """Computes catalog SKU table with stock depletion, return rates, and risk status."""
@@ -548,6 +621,11 @@ def revenue_trend(
 def marketplace_metrics(db: Session, days: int = 30) -> List[Dict[str, Any]]:
     engine = AnalyticsEngine(db, days=days)
     return engine.marketplace_metrics()
+
+
+def marketplace_detail(db: Session, marketplace_name: str, days: int = 30) -> Optional[Dict[str, Any]]:
+    engine = AnalyticsEngine(db, days=days)
+    return engine.marketplace_detail(marketplace_name=marketplace_name)
 
 
 def product_table(

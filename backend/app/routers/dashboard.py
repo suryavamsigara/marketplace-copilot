@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from typing import Optional
 from app.database import get_db
-from app.services import analytics_engine as ae
+from app.services.analytics_engine import AnalyticsEngine
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
@@ -14,7 +14,8 @@ def get_summary(
     category: Optional[str] = None,
     db: Session = Depends(get_db),
 ):
-    return ae.dashboard_summary(db, days=days, marketplace=marketplace, category=category)
+    engine = AnalyticsEngine(db, days=days, marketplace=marketplace, category=category)
+    return engine.dashboard_summary()
 
 
 @router.get("/trends")
@@ -25,4 +26,5 @@ def get_trends(
     granularity: str = Query("daily", pattern="^(daily|weekly)$"),
     db: Session = Depends(get_db),
 ):
-    return {"trend": ae.revenue_trend(db, days=days, marketplace=marketplace, category=category, granularity=granularity)}
+    engine = AnalyticsEngine(db, days=days, marketplace=marketplace, category=category)
+    return {"trend": engine.revenue_trend(granularity=granularity)}
