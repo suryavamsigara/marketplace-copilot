@@ -79,7 +79,7 @@ def chat(db: Session, message: str, history: list = None) -> dict:
 
     try:
         from openai import OpenAI
-        client = OpenAI(api_key=LLM_API_KEY)
+        client = OpenAI(api_key=LLM_API_KEY, base_url='https://api.deepseek.com')
 
         messages = [{"role": "system", "content": SYSTEM_PROMPT}]
         for h in (history or [])[-6:]:
