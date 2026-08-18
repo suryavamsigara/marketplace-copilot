@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { api } from '../api/client';
@@ -21,6 +22,7 @@ const SUGGESTED_PROMPTS = [
 ];
 
 export default function CopilotPage() {
+  const location = useLocation();
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -28,6 +30,28 @@ export default function CopilotPage() {
   const [copiedIndex, setCopiedIndex] = useState(null);
   const messagesEndRef = useRef(null);
   const textareaRef = useRef(null);
+
+  // Initialize with transferred explanation if navigating from "Ask follow up in copilot"
+  useEffect(() => {
+    if (location.state?.initialAnswer) {
+      setMessages([
+        {
+          role: 'user',
+          content: location.state.initialPrompt || `Explain: ${location.state.title || 'Opportunity'}`,
+        },
+        {
+          role: 'assistant',
+          content: location.state.initialAnswer,
+          mode: 'llm',
+          tool_calls: [],
+        },
+      ]);
+      // Clear location state history so reload doesn't re-seed
+      window.history.replaceState({}, document.title);
+      // Auto-focus textarea for seamless follow-up typing
+      setTimeout(() => textareaRef.current?.focus(), 150);
+    }
+  }, [location.state]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -250,7 +274,7 @@ export default function CopilotPage() {
             <textarea
               ref={textareaRef}
               rows={1}
-              placeholder="Message Copilot..."
+              placeholder={messages.length > 0 ? "Ask a follow-up question..." : "Message Copilot..."}
               value={input}
               onChange={handleTextareaChange}
               onKeyDown={handleKeyDown}
