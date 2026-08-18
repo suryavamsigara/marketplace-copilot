@@ -1,20 +1,22 @@
 import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useFilters } from '../context/FilterContext';
 import { api } from '../api/client';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import {
   X,
   Sparkles,
   Bot,
-  CheckCircle2,
   AlertTriangle,
   ArrowRight,
-  TrendingUp,
   ShieldCheck,
   Cpu,
 } from 'lucide-react';
 
 export default function ExplainModal() {
-  const { explainModal, closeExplain, setActiveTab } = useFilters();
+  const navigate = useNavigate();
+  const { explainModal, closeExplain } = useFilters();
   const { isOpen, subjectType, subjectId, title, subtitle } = explainModal;
 
   const [loading, setLoading] = useState(false);
@@ -59,55 +61,7 @@ export default function ExplainModal() {
 
   const handleOpenInCopilot = () => {
     closeExplain();
-    setActiveTab('copilot');
-  };
-
-  // Helper to format structured answer markdown cleanly
-  const renderStructuredAnswer = (text) => {
-    if (!text) return null;
-    const sections = text.split(/(?=^##\s+)/m);
-
-    return (
-      <div className="space-y-4 text-sm text-slate-200">
-        {sections.map((sec, idx) => {
-          const trimmed = sec.trim();
-          if (!trimmed) return null;
-          const lines = trimmed.split('\n');
-          const heading = lines[0].replace(/^##\s+/, '');
-          const body = lines.slice(1).join('\n').trim();
-
-          const isSummary = heading.toLowerCase().includes('summary');
-          const isDrivers = heading.toLowerCase().includes('drivers');
-          const isEvidence = heading.toLowerCase().includes('evidence');
-          const isAction = heading.toLowerCase().includes('action');
-          const isImpact = heading.toLowerCase().includes('impact');
-          const isConfidence = heading.toLowerCase().includes('confidence');
-
-          let badgeColor = 'bg-slate-800 text-slate-300 border-slate-700';
-          if (isSummary) badgeColor = 'bg-amber-500/15 text-amber-300 border-amber-500/30';
-          if (isAction) badgeColor = 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30';
-          if (isImpact) badgeColor = 'bg-rose-500/15 text-rose-300 border-rose-500/30';
-
-          return (
-            <div
-              key={idx}
-              className="p-4 rounded-xl bg-slate-900/90 border border-slate-800/80 shadow-sm"
-            >
-              <div className="flex items-center space-x-2 mb-2">
-                <span
-                  className={`text-xs font-bold px-2 py-0.5 rounded-md border uppercase tracking-wider ${badgeColor}`}
-                >
-                  {heading}
-                </span>
-              </div>
-              <div className="text-slate-300 leading-relaxed whitespace-pre-line text-sm pl-1">
-                {body}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    );
+    navigate('/copilot');
   };
 
   return (
@@ -164,7 +118,7 @@ export default function ExplainModal() {
                   <Cpu className="w-3.5 h-3.5 text-amber-400" />
                   <span className="text-slate-300 font-medium">
                     {data.mode === 'llm'
-                      ? 'AI Reasoning Layer (GPT-4o Mini with Tool Calling)'
+                      ? 'AI Reasoning Layer (DeepSeek / GPT with Tool Calling)'
                       : 'Deterministic Analytics Engine Grounding'}
                   </span>
                 </div>
@@ -175,8 +129,36 @@ export default function ExplainModal() {
                 )}
               </div>
 
-              {/* Render Structured Sections */}
-              {renderStructuredAnswer(data.answer)}
+              {/* Render Formatted Markdown */}
+              <div className="markdown-prose text-sm text-slate-200 space-y-3 leading-relaxed">
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  components={{
+                    h2: ({ children }) => (
+                      <h2 className="text-sm font-bold text-amber-300 border-b border-slate-800/80 pb-1 mt-4 mb-2 flex items-center space-x-2">
+                        <span>{children}</span>
+                      </h2>
+                    ),
+                    h3: ({ children }) => (
+                      <h3 className="text-xs font-bold text-slate-100 uppercase tracking-wider mt-3 mb-1">
+                        {children}
+                      </h3>
+                    ),
+                    ul: ({ children }) => <ul className="list-disc pl-5 space-y-1 my-2 text-xs">{children}</ul>,
+                    ol: ({ children }) => <ol className="list-decimal pl-5 space-y-1 my-2 text-xs">{children}</ol>,
+                    li: ({ children }) => <li className="text-slate-300 leading-snug">{children}</li>,
+                    p: ({ children }) => <p className="my-1.5 leading-relaxed text-xs text-slate-300">{children}</p>,
+                    strong: ({ children }) => <strong className="font-bold text-slate-100">{children}</strong>,
+                    code: ({ children }) => (
+                      <code className="px-1.5 py-0.5 rounded bg-slate-950 border border-slate-800 text-amber-300 font-mono text-[11px]">
+                        {children}
+                      </code>
+                    ),
+                  }}
+                >
+                  {data.answer}
+                </ReactMarkdown>
+              </div>
             </div>
           )}
         </div>

@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useFilters } from '../context/FilterContext';
 import { api } from '../api/client';
 import HealthBadge from '../components/HealthBadge';
-import OpportunityCard from '../components/OpportunityCard';
-import { TableSkeleton, ChartSkeleton } from '../components/LoadingSkeleton';
+import { TableSkeleton } from '../components/LoadingSkeleton';
 import EmptyState from '../components/EmptyState';
 import { formatCurrency, formatNumber, formatPercent } from '../utils/formatters';
 import {
@@ -13,10 +13,6 @@ import {
   TrendingDown,
   Sparkles,
   AlertTriangle,
-  ArrowRight,
-  Package,
-  Layers,
-  ChevronRight,
   BarChart3,
 } from 'lucide-react';
 import {
@@ -30,15 +26,10 @@ import {
 } from 'recharts';
 
 export default function MarketplacesPage() {
-  const {
-    days,
-    selectedMarketplace,
-    setSelectedMarketplace,
-    navigateToProduct,
-    openExplain,
-  } = useFilters();
+  const navigate = useNavigate();
+  const { days, openExplain } = useFilters();
 
-  const [activeMktName, setActiveMktName] = useState(selectedMarketplace || 'Amazon');
+  const [activeMktName, setActiveMktName] = useState('Amazon');
 
   // Fetch all marketplaces summary
   const {
@@ -74,7 +65,6 @@ export default function MarketplacesPage() {
   const revenueTrend = mktDetailData?.revenue_trend || [];
   const topProducts = mktDetailData?.top_products || [];
   const worstProducts = mktDetailData?.worst_products || [];
-  const channelOpps = mktDetailData?.opportunities || [];
 
   return (
     <div className="p-6 space-y-7 max-w-7xl mx-auto">
@@ -288,7 +278,7 @@ export default function MarketplacesPage() {
             {/* Channel Metrics Snapshot */}
             <div className="glass-card rounded-2xl p-5 flex flex-col justify-between space-y-3">
               <h4 className="text-sm font-bold text-slate-100 mb-1">Channel Snapshot</h4>
-              
+
               <div className="space-y-2.5">
                 <div className="flex justify-between items-center p-2.5 rounded-xl bg-slate-900/90 border border-slate-800">
                   <span className="text-xs text-slate-400">Total Revenue</span>
@@ -343,7 +333,7 @@ export default function MarketplacesPage() {
                 {topProducts.map((p) => (
                   <div
                     key={p.product_id}
-                    onClick={() => navigateToProduct(p.product_id)}
+                    onClick={() => navigate(`/products/${p.product_id}`)}
                     className="p-3 rounded-xl bg-slate-900/80 hover:bg-slate-800 border border-slate-800 flex items-center justify-between cursor-pointer transition"
                   >
                     <div>
@@ -377,7 +367,7 @@ export default function MarketplacesPage() {
                 {worstProducts.map((p) => (
                   <div
                     key={p.product_id}
-                    onClick={() => navigateToProduct(p.product_id)}
+                    onClick={() => navigate(`/products/${p.product_id}`)}
                     className="p-3 rounded-xl bg-slate-900/80 hover:bg-slate-800 border border-slate-800 flex items-center justify-between cursor-pointer transition"
                   >
                     <div>

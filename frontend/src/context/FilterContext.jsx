@@ -16,9 +16,6 @@ export function FilterProvider({ children }) {
   const [days, setDays] = useState(30);
   const [marketplace, setMarketplace] = useState('');
   const [category, setCategory] = useState('');
-  const [activeTab, setActiveTab] = useState('overview'); // 'overview' | 'marketplaces' | 'products' | 'opportunities' | 'copilot'
-  const [selectedProductId, setSelectedProductId] = useState(null);
-  const [selectedMarketplace, setSelectedMarketplace] = useState(null);
 
   // Global Explain Modal state
   const [explainModal, setExplainModal] = useState({
@@ -43,16 +40,6 @@ export function FilterProvider({ children }) {
     setExplainModal((prev) => ({ ...prev, isOpen: false }));
   };
 
-  const navigateToProduct = (productId) => {
-    setSelectedProductId(productId);
-    setActiveTab('products');
-  };
-
-  const navigateToMarketplace = (mktName) => {
-    setSelectedMarketplace(mktName);
-    setActiveTab('marketplaces');
-  };
-
   const resetFilters = () => {
     setDays(30);
     setMarketplace('');
@@ -68,17 +55,9 @@ export function FilterProvider({ children }) {
         setMarketplace,
         category,
         setCategory,
-        activeTab,
-        setActiveTab,
-        selectedProductId,
-        setSelectedProductId,
-        selectedMarketplace,
-        setSelectedMarketplace,
         explainModal,
         openExplain,
         closeExplain,
-        navigateToProduct,
-        navigateToMarketplace,
         resetFilters,
       }}
     >

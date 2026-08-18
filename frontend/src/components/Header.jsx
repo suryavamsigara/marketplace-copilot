@@ -1,53 +1,62 @@
 import React from 'react';
+import { useLocation } from 'react-router-dom';
 import { useFilters, DATE_RANGES, MARKETPLACES, CATEGORIES } from '../context/FilterContext';
-import { Calendar, Filter, Sparkles, RefreshCw, Layers } from 'lucide-react';
+import { Calendar, Filter, RefreshCw, Layers } from 'lucide-react';
 
 export default function Header() {
+  const location = useLocation();
   const {
-    activeTab,
     days,
     setDays,
     marketplace,
     setMarketplace,
     category,
     setCategory,
-    openExplain,
     resetFilters,
   } = useFilters();
 
   const getPageMeta = () => {
-    switch (activeTab) {
-      case 'overview':
-        return {
-          title: 'Executive Overview',
-          subtitle: 'Understand what changed, why it changed, and what to do next.',
-        };
-      case 'marketplaces':
-        return {
-          title: 'Marketplace Intelligence',
-          subtitle: 'Channel benchmarking across Amazon, Flipkart, Myntra, and Ajio.',
-        };
-      case 'products':
-        return {
-          title: 'Product Intelligence',
-          subtitle: 'Granular SKU analytics, inventory coverage, and revenue exposure.',
-        };
-      case 'opportunities':
-        return {
-          title: 'Business Opportunities',
-          subtitle: 'Prioritized issues and opportunities requiring immediate operational attention.',
-        };
-      case 'copilot':
-        return {
-          title: 'AI Copilot Reasoning Layer',
-          subtitle: 'Natural-language queries backed by deterministic Python tools & verified data.',
-        };
-      default:
-        return {
-          title: 'Marketplace Performance Copilot',
-          subtitle: 'Operations intelligence & AI decision support.',
-        };
+    const path = location.pathname;
+    if (path === '/' || path === '/overview') {
+      return {
+        title: 'Executive Overview',
+        subtitle: 'Understand what changed, why it changed, and what to do next.',
+        showLiveBadge: true,
+      };
     }
+    if (path.startsWith('/marketplaces')) {
+      return {
+        title: 'Marketplace Intelligence',
+        subtitle: 'Channel benchmarking across Amazon, Flipkart, Myntra, and Ajio.',
+        showLiveBadge: false,
+      };
+    }
+    if (path.startsWith('/products')) {
+      return {
+        title: 'Product Intelligence',
+        subtitle: 'Granular SKU analytics, inventory coverage, and revenue exposure.',
+        showLiveBadge: false,
+      };
+    }
+    if (path.startsWith('/opportunities')) {
+      return {
+        title: 'Business Opportunities',
+        subtitle: 'Prioritized issues and opportunities requiring immediate operational attention.',
+        showLiveBadge: false,
+      };
+    }
+    if (path.startsWith('/copilot')) {
+      return {
+        title: 'AI Copilot Reasoning Layer',
+        subtitle: 'Natural-language inquiries backed by deterministic tools & verified data.',
+        showLiveBadge: false,
+      };
+    }
+    return {
+      title: 'Marketplace Performance Copilot',
+      subtitle: 'Operations intelligence & AI decision support.',
+      showLiveBadge: false,
+    };
   };
 
   const meta = getPageMeta();
@@ -59,7 +68,7 @@ export default function Header() {
       <div>
         <h2 className="text-lg font-bold text-slate-100 tracking-tight flex items-center space-x-2">
           <span>{meta.title}</span>
-          {activeTab === 'overview' && (
+          {meta.showLiveBadge && (
             <span className="text-[11px] font-medium px-2 py-0.5 rounded-md bg-emerald-950/40 text-emerald-400 border border-emerald-500/20">
               Live Operations
             </span>

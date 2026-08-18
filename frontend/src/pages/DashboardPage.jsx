@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useFilters } from '../context/FilterContext';
 import { api } from '../api/client';
 import KPICard from '../components/KPICard';
 import OpportunityCard from '../components/OpportunityCard';
-import { KPISkeleton, ChartSkeleton } from '../components/LoadingSkeleton';
+import { KPISkeleton } from '../components/LoadingSkeleton';
 import EmptyState from '../components/EmptyState';
-import { formatCurrency, formatNumber, formatPercent } from '../utils/formatters';
+import { formatCurrency, formatNumber } from '../utils/formatters';
 import {
   ResponsiveContainer,
   AreaChart,
@@ -26,14 +27,8 @@ import {
   Legend,
 } from 'recharts';
 import {
-  TrendingUp,
-  Sparkles,
   Zap,
   ArrowUpRight,
-  AlertTriangle,
-  Layers,
-  Store,
-  Info,
 } from 'lucide-react';
 
 const MARKETPLACE_COLORS = {
@@ -46,7 +41,8 @@ const MARKETPLACE_COLORS = {
 const CATEGORY_COLORS = ['#F59E0B', '#3B82F6', '#10B981', '#EC4899', '#8B5CF6', '#F97316'];
 
 export default function DashboardPage() {
-  const { days, marketplace, category, setActiveTab, openExplain, navigateToProduct } = useFilters();
+  const navigate = useNavigate();
+  const { days, marketplace, category } = useFilters();
   const [granularity, setGranularity] = useState('daily'); // 'daily' | 'weekly'
 
   // Fetch KPI Summary
@@ -80,7 +76,6 @@ export default function DashboardPage() {
   // Fetch Top Products for Scatter & Category Contribution
   const {
     data: productsData,
-    isLoading: isProductsLoading,
   } = useQuery({
     queryKey: ['dashboard-products', days, marketplace, category],
     queryFn: () => api.getProducts({ days, marketplace, category, page_size: 50 }),
@@ -228,19 +223,21 @@ export default function DashboardPage() {
             <div className="flex items-center bg-slate-900 border border-slate-800 rounded-lg p-0.5 text-xs">
               <button
                 onClick={() => setGranularity('daily')}
-                className={`px-2.5 py-1 rounded-md font-medium transition ${granularity === 'daily'
+                className={`px-2.5 py-1 rounded-md font-medium transition ${
+                  granularity === 'daily'
                     ? 'bg-amber-500 text-slate-950 font-bold shadow-sm'
                     : 'text-slate-400 hover:text-slate-200'
-                  }`}
+                }`}
               >
                 Daily
               </button>
               <button
                 onClick={() => setGranularity('weekly')}
-                className={`px-2.5 py-1 rounded-md font-medium transition ${granularity === 'weekly'
+                className={`px-2.5 py-1 rounded-md font-medium transition ${
+                  granularity === 'weekly'
                     ? 'bg-amber-500 text-slate-950 font-bold shadow-sm'
                     : 'text-slate-400 hover:text-slate-200'
-                  }`}
+                }`}
               >
                 Weekly
               </button>
@@ -304,7 +301,7 @@ export default function DashboardPage() {
               <p className="text-xs text-slate-400">Revenue split across channels</p>
             </div>
             <button
-              onClick={() => setActiveTab('marketplaces')}
+              onClick={() => navigate('/marketplaces')}
               className="text-xs text-amber-400 hover:text-amber-300 font-semibold flex items-center space-x-0.5"
             >
               <span>View All</span>
@@ -427,7 +424,7 @@ export default function DashboardPage() {
                 <Scatter
                   name="Products"
                   data={scatterData}
-                  onClick={(node) => navigateToProduct(node.product_id)}
+                  onClick={(node) => navigate(`/products/${node.product_id}`)}
                   cursor="pointer"
                 >
                   {scatterData.map((entry, index) => {
@@ -505,7 +502,7 @@ export default function DashboardPage() {
           </div>
 
           <button
-            onClick={() => setActiveTab('opportunities')}
+            onClick={() => navigate('/opportunities')}
             className="flex items-center space-x-1 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 transition"
           >
             <span>View All Opportunities</span>

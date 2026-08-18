@@ -1,18 +1,17 @@
 import React from 'react';
+import { useNavigate } from 'react-router-dom';
 import { getSeverityBadge } from '../utils/formatters';
 import { useFilters } from '../context/FilterContext';
 import {
   Sparkles,
   ArrowRight,
-  TrendingUp,
   AlertCircle,
-  Clock,
   Shield,
-  Layers,
 } from 'lucide-react';
 
 export default function OpportunityCard({ opportunity }) {
-  const { openExplain, navigateToProduct, navigateToMarketplace } = useFilters();
+  const navigate = useNavigate();
+  const { openExplain } = useFilters();
 
   const {
     id,
@@ -43,9 +42,9 @@ export default function OpportunityCard({ opportunity }) {
   const handleEntityClick = (e) => {
     e.stopPropagation();
     if (product_id) {
-      navigateToProduct(product_id);
+      navigate(`/products/${product_id}`);
     } else if (entity && ['Amazon', 'Flipkart', 'Myntra', 'Ajio'].includes(entity)) {
-      navigateToMarketplace(entity);
+      navigate('/marketplaces');
     }
   };
 
@@ -125,7 +124,9 @@ export default function OpportunityCard({ opportunity }) {
       <div className="pt-4 mt-4 border-t border-slate-800/60 flex items-center justify-between text-xs">
         <div className="flex items-center space-x-1.5 text-[11px] text-slate-400">
           <Shield className="w-3 h-3 text-slate-400" />
-          <span>Confidence: <strong className="text-slate-300 font-semibold">{confidence}</strong></span>
+          <span>
+            Confidence: <strong className="text-slate-300 font-semibold">{confidence}</strong>
+          </span>
         </div>
 
         <div className="flex items-center space-x-2">

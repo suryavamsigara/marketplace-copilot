@@ -1,32 +1,23 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useFilters } from '../context/FilterContext';
 import { api } from '../api/client';
-import ProductDetailPage from './ProductDetailPage';
 import HealthBadge from '../components/HealthBadge';
 import { TableSkeleton } from '../components/LoadingSkeleton';
 import EmptyState from '../components/EmptyState';
-import { formatCurrency, formatNumber, formatPercent } from '../utils/formatters';
+import { formatCurrency, formatNumber } from '../utils/formatters';
 import {
   Package,
   Search,
   ArrowUpDown,
-  Filter,
-  AlertTriangle,
   ChevronLeft,
   ChevronRight,
-  TrendingDown,
-  Info,
 } from 'lucide-react';
 
 export default function ProductsPage() {
-  const {
-    days,
-    marketplace,
-    category,
-    selectedProductId,
-    setSelectedProductId,
-  } = useFilters();
+  const navigate = useNavigate();
+  const { days, marketplace, category } = useFilters();
 
   const [search, setSearch] = useState('');
   const [riskLevel, setRiskLevel] = useState('');
@@ -66,16 +57,6 @@ export default function ProductsPage() {
         page_size: pageSize,
       }),
   });
-
-  // If a product is selected, render ProductDetailPage!
-  if (selectedProductId) {
-    return (
-      <ProductDetailPage
-        productId={selectedProductId}
-        onBack={() => setSelectedProductId(null)}
-      />
-    );
-  }
 
   const products = data?.products || [];
   const total = data?.total || 0;
@@ -239,7 +220,7 @@ export default function ProductsPage() {
                   return (
                     <tr
                       key={p.product_id}
-                      onClick={() => setSelectedProductId(p.product_id)}
+                      onClick={() => navigate(`/products/${p.product_id}`)}
                       className="hover:bg-slate-900/80 transition cursor-pointer group"
                     >
                       <td className="px-5 py-4">
@@ -277,12 +258,13 @@ export default function ProductsPage() {
                       <td className="px-4 py-4 font-mono">
                         {p.days_of_stock !== null ? (
                           <span
-                            className={`font-bold px-2 py-0.5 rounded ${isStockoutCritical
-                              ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
-                              : isStockoutWarning
+                            className={`font-bold px-2 py-0.5 rounded ${
+                              isStockoutCritical
+                                ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
+                                : isStockoutWarning
                                 ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
                                 : 'text-slate-300'
-                              }`}
+                            }`}
                           >
                             {p.days_of_stock}d
                           </span>

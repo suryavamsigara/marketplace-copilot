@@ -1,6 +1,7 @@
 import React from 'react';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { FilterProvider, useFilters } from './context/FilterContext';
+import { FilterProvider } from './context/FilterContext';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
 import ExplainModal from './components/ExplainModal';
@@ -9,6 +10,7 @@ import ExplainModal from './components/ExplainModal';
 import DashboardPage from './pages/DashboardPage';
 import MarketplacesPage from './pages/MarketplacesPage';
 import ProductsPage from './pages/ProductsPage';
+import ProductDetailPage from './pages/ProductDetailPage';
 import OpportunitiesPage from './pages/OpportunitiesPage';
 import CopilotPage from './pages/CopilotPage';
 
@@ -22,51 +24,37 @@ const queryClient = new QueryClient({
   },
 });
 
-function AppContent() {
-  const { activeTab } = useFilters();
-
-  const renderActivePage = () => {
-    switch (activeTab) {
-      case 'overview':
-        return <DashboardPage />;
-      case 'marketplaces':
-        return <MarketplacesPage />;
-      case 'products':
-        return <ProductsPage />;
-      case 'opportunities':
-        return <OpportunitiesPage />;
-      case 'copilot':
-        return <CopilotPage />;
-      default:
-        return <DashboardPage />;
-    }
-  };
-
-  return (
-    <div className="flex min-h-screen bg-[#0b0f19] text-slate-100 selection:bg-amber-500/30 selection:text-amber-200">
-      {/* Persistent Left Sidebar */}
-      <Sidebar />
-
-      {/* Main Content Area */}
-      <div className="flex-1 flex flex-col min-w-0">
-        <Header />
-        <main className="flex-1 overflow-y-auto pb-12">
-          {renderActivePage()}
-        </main>
-      </div>
-
-      {/* Global AI Root-Cause Explain Modal */}
-      <ExplainModal />
-    </div>
-  );
-}
-
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <FilterProvider>
-        <AppContent />
-      </FilterProvider>
+      <BrowserRouter>
+        <FilterProvider>
+          <div className="flex min-h-screen bg-[#0b0f19] text-slate-100 selection:bg-amber-500/30 selection:text-amber-200">
+            {/* Persistent Left Sidebar */}
+            <Sidebar />
+
+            {/* Main Content Area */}
+            <div className="flex-1 flex flex-col min-w-0">
+              <Header />
+              <main className="flex-1 overflow-y-auto pb-12">
+                <Routes>
+                  <Route path="/" element={<DashboardPage />} />
+                  <Route path="/overview" element={<Navigate to="/" replace />} />
+                  <Route path="/marketplaces" element={<MarketplacesPage />} />
+                  <Route path="/products" element={<ProductsPage />} />
+                  <Route path="/products/:productId" element={<ProductDetailPage />} />
+                  <Route path="/opportunities" element={<OpportunitiesPage />} />
+                  <Route path="/copilot" element={<CopilotPage />} />
+                  <Route path="*" element={<Navigate to="/" replace />} />
+                </Routes>
+              </main>
+            </div>
+
+            {/* Global AI Root-Cause Explain Modal */}
+            <ExplainModal />
+          </div>
+        </FilterProvider>
+      </BrowserRouter>
     </QueryClientProvider>
   );
 }

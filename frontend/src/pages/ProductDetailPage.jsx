@@ -1,21 +1,14 @@
 import React from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useFilters } from '../context/FilterContext';
 import { api } from '../api/client';
-import HealthBadge from '../components/HealthBadge';
 import { ChartSkeleton } from '../components/LoadingSkeleton';
 import EmptyState from '../components/EmptyState';
-import { formatCurrency, formatNumber, formatPercent } from '../utils/formatters';
+import { formatCurrency, formatNumber } from '../utils/formatters';
 import {
   ArrowLeft,
-  Package,
-  DollarSign,
-  TrendingUp,
   Sparkles,
-  AlertTriangle,
-  Clock,
-  Shield,
-  Layers,
   HelpCircle,
 } from 'lucide-react';
 import {
@@ -30,8 +23,13 @@ import {
   CartesianGrid,
 } from 'recharts';
 
-export default function ProductDetailPage({ productId, onBack }) {
-  const { days, openExplain, setActiveTab } = useFilters();
+export default function ProductDetailPage({ productId: propProductId, onBack: propOnBack }) {
+  const params = useParams();
+  const navigate = useNavigate();
+  const { days, openExplain } = useFilters();
+
+  const productId = propProductId || params.productId;
+  const handleBack = propOnBack || (() => navigate('/products'));
 
   const {
     data: product,
@@ -40,6 +38,7 @@ export default function ProductDetailPage({ productId, onBack }) {
   } = useQuery({
     queryKey: ['product-detail', productId, days],
     queryFn: () => api.getProductDetail(productId, { days }),
+    enabled: Boolean(productId),
   });
 
   if (isLoading) {
@@ -59,7 +58,7 @@ export default function ProductDetailPage({ productId, onBack }) {
     return (
       <div className="p-6 max-w-7xl mx-auto">
         <button
-          onClick={onBack}
+          onClick={handleBack}
           className="flex items-center space-x-2 text-xs font-semibold text-slate-400 hover:text-slate-200 mb-6"
         >
           <ArrowLeft className="w-4 h-4" />
@@ -68,7 +67,7 @@ export default function ProductDetailPage({ productId, onBack }) {
         <EmptyState
           title="Product not found"
           description="Could not load analytics for this SKU."
-          onAction={onBack}
+          onAction={handleBack}
           actionLabel="Back to Catalog"
         />
       </div>
@@ -83,7 +82,7 @@ export default function ProductDetailPage({ productId, onBack }) {
       {/* Top Back Navigation */}
       <div className="flex items-center justify-between">
         <button
-          onClick={onBack}
+          onClick={handleBack}
           className="flex items-center space-x-2 px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-xs font-semibold text-slate-300 hover:text-slate-100 transition"
         >
           <ArrowLeft className="w-4 h-4" />

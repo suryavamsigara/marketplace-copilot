@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useFilters } from '../context/FilterContext';
+import { Link, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard,
   Store,
@@ -16,24 +16,28 @@ import {
 const NAV_ITEMS = [
   {
     id: 'overview',
+    path: '/',
     label: 'Overview',
     subtitle: 'Executive Summary & KPIs',
     icon: LayoutDashboard,
   },
   {
     id: 'marketplaces',
+    path: '/marketplaces',
     label: 'Marketplaces',
     subtitle: 'Channel Comparison & Health',
     icon: Store,
   },
   {
     id: 'products',
+    path: '/products',
     label: 'Products',
     subtitle: 'SKU Intelligence & Inventory',
     icon: Package,
   },
   {
     id: 'opportunities',
+    path: '/opportunities',
     label: 'Opportunities',
     subtitle: 'Prioritized Business Actions',
     icon: Zap,
@@ -41,6 +45,7 @@ const NAV_ITEMS = [
   },
   {
     id: 'copilot',
+    path: '/copilot',
     label: 'AI Copilot',
     subtitle: 'Evidence-Grounded Assistant',
     icon: Sparkles,
@@ -49,19 +54,21 @@ const NAV_ITEMS = [
 ];
 
 export default function Sidebar() {
-  const { activeTab, setActiveTab, setSelectedProductId, setSelectedMarketplace } = useFilters();
+  const location = useLocation();
   const [isCollapsed, setIsCollapsed] = useState(false);
 
-  const handleNavClick = (id) => {
-    if (id !== 'products') setSelectedProductId(null);
-    if (id !== 'marketplaces') setSelectedMarketplace(null);
-    setActiveTab(id);
+  const isItemActive = (item) => {
+    if (item.path === '/') {
+      return location.pathname === '/' || location.pathname === '/overview';
+    }
+    return location.pathname.startsWith(item.path);
   };
 
   return (
     <aside
-      className={`sticky top-0 self-start h-screen flex-shrink-0 bg-slate-950 border-r border-slate-800/80 flex flex-col justify-between select-none transition-all duration-300 ease-in-out overflow-y-auto ${isCollapsed ? 'w-20' : 'w-64'
-        }`}
+      className={`sticky top-0 self-start h-screen flex-shrink-0 bg-slate-950 border-r border-slate-800/80 flex flex-col justify-between select-none transition-all duration-300 ease-in-out overflow-y-auto ${
+        isCollapsed ? 'w-20' : 'w-64'
+      }`}
     >
       {/* Brand Header */}
       <div>
@@ -72,7 +79,6 @@ export default function Sidebar() {
                 <TrendingUp className="w-5 h-5 text-amber-400" />
               </div>
             </div>
-
 
             {!isCollapsed && (
               <div className="flex-1 min-w-0">
@@ -112,38 +118,40 @@ export default function Sidebar() {
         <nav className="p-3 space-y-1">
           {NAV_ITEMS.map((item) => {
             const Icon = item.icon;
-            const isActive = activeTab === item.id;
+            const isActive = isItemActive(item);
             return (
-              <button
+              <Link
                 key={item.id}
-                onClick={() => handleNavClick(item.id)}
+                to={item.path}
                 title={isCollapsed ? item.label : undefined}
-                className={`w-full flex items-center rounded-xl text-left text-sm font-medium transition-all group ${isCollapsed
-                  ? 'justify-center px-2 py-3'
-                  : 'justify-between px-3.5 py-2.5'
-                  } ${isActive
+                className={`w-full flex items-center rounded-xl text-left text-sm font-medium transition-all group ${
+                  isCollapsed ? 'justify-center px-2 py-3' : 'justify-between px-3.5 py-2.5'
+                } ${
+                  isActive
                     ? 'bg-slate-800 text-slate-100 border border-slate-700/50'
                     : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900 border border-transparent'
-                  }`}
+                }`}
               >
                 <div className={`flex items-center ${isCollapsed ? '' : 'space-x-3'}`}>
                   <Icon
-                    className={`w-4 h-4 transition-colors flex-shrink-0 ${isActive ? 'text-amber-400' : 'text-slate-400 group-hover:text-slate-300'
-                      }`}
+                    className={`w-4 h-4 transition-colors flex-shrink-0 ${
+                      isActive ? 'text-amber-400' : 'text-slate-400 group-hover:text-slate-300'
+                    }`}
                   />
                   {!isCollapsed && <span>{item.label}</span>}
                 </div>
                 {!isCollapsed && item.badge && (
                   <span
-                    className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${isActive
-                      ? 'bg-amber-400 text-slate-950'
-                      : 'bg-slate-800 text-slate-400 group-hover:bg-slate-700'
-                      }`}
+                    className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                      isActive
+                        ? 'bg-amber-400 text-slate-950'
+                        : 'bg-slate-800 text-slate-400 group-hover:bg-slate-700'
+                    }`}
                   >
                     {item.badge}
                   </span>
                 )}
-              </button>
+              </Link>
             );
           })}
         </nav>
@@ -173,8 +181,7 @@ export default function Sidebar() {
           </div>
         </div>
       ) : (
-        <div className="p-4 border-t border-slate-800/60 flex justify-center">
-        </div>
+        <div className="p-4 border-t border-slate-800/60 flex justify-center"></div>
       )}
     </aside>
   );
