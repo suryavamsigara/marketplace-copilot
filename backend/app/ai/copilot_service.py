@@ -9,10 +9,11 @@ summary built directly from the analytics/opportunity engines, and the
 response clearly states that AI reasoning is unavailable.
 """
 import json
+from typing import Optional
 from sqlalchemy.orm import Session
 from app.config import LLM_API_KEY, LLM_MODEL
 from app.ai.tools import TOOL_SCHEMAS, call_tool
-from app.services import analytics_engine as ae
+from app.services.analytics_engine import AnalyticsEngine
 from app.services import opportunity_engine as oe
 
 SYSTEM_PROMPT = """You are an internal marketplace business analyst embedded in the \
@@ -40,10 +41,11 @@ Format your final answer in this structure using Markdown headings:
 """
 
 
-def _deterministic_fallback(db: Session, question: str) -> dict:
+def _deterministic_fallback(db: Session, question: str, engine: Optional[AnalyticsEngine] = None) -> dict:
     """Non-LLM fallback: builds a grounded answer directly from the
     analytics/opportunity engines when no LLM API key is configured."""
-    summary = ae.dashboard_summary(db, days=30)
+    eng = engine or AnalyticsEngine(db, days=30)
+    summary = eng.dashboard_summary()
     opps = oe.detect_all_opportunities(db, days=30)[:5]
     rev = summary["kpis"]["revenue"]
 
@@ -73,9 +75,10 @@ def _deterministic_fallback(db: Session, question: str) -> dict:
     }
 
 
-def chat(db: Session, message: str, history: list = None) -> dict:
+def chat(db: Session, message: str, history: list = None, engine: Optional[AnalyticsEngine] = None) -> dict:
+    eng = engine or AnalyticsEngine(db, days=30)
     if not LLM_API_KEY:
-        return _deterministic_fallback(db, message)
+        return _deterministic_fallback(db, message, engine=eng)
 
     try:
         from openai import OpenAI
@@ -102,7 +105,7 @@ def chat(db: Session, message: str, history: list = None) -> dict:
                 })
                 for tc in msg.tool_calls:
                     args = json.loads(tc.function.arguments or "{}")
-                    result = call_tool(tc.function.name, args, db)
+                    result = call_tool(tc.function.name, args, db=db, engine=eng)
                     tool_call_log.append({"tool": tc.function.name, "args": args})
                     messages.append({
                         "role": "tool", "tool_call_id": tc.id,
@@ -115,23 +118,24 @@ def chat(db: Session, message: str, history: list = None) -> dict:
         return {"answer": "I gathered evidence but couldn't finalize a response in time. Please try again.",
                 "mode": "llm", "tool_calls": tool_call_log}
     except Exception as e:
-        fb = _deterministic_fallback(db, message)
+        fb = _deterministic_fallback(db, message, engine=eng)
         fb["error"] = f"AI analysis unavailable ({type(e).__name__}); showing deterministic fallback."
         return fb
 
 
-def explain(db: Session, subject_type: str, subject_id: str = None) -> dict:
+def explain(db: Session, subject_type: str, subject_id: str = None, engine: Optional[AnalyticsEngine] = None) -> dict:
     """Powers the 'Explain' button on KPI cards and opportunity cards."""
+    eng = engine or AnalyticsEngine(db, days=30)
     if subject_type == "opportunity" and subject_id:
         from app.models.models import Opportunity
         o = db.query(Opportunity).get(int(subject_id))
         if not o:
             return {"answer": "Opportunity not found.", "mode": "fallback"}
         question = f"Explain this opportunity in detail and justify the recommended action: {o.title}."
-        return chat(db, question)
+        return chat(db, question, engine=eng)
 
     if subject_type == "kpi" and subject_id:
         question = f"Explain what changed for the KPI '{subject_id}' over the last 30 days: what changed, main contributors, evidence, likely explanation, and recommended action."
-        return chat(db, question)
+        return chat(db, question, engine=eng)
 
-    return chat(db, "What changed this week and what should I prioritize?")
+    return chat(db, "What changed this week and what should I prioritize?", engine=eng)

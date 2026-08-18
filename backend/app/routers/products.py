@@ -1,26 +1,21 @@
 from fastapi import APIRouter, Depends, Query, HTTPException
-from sqlalchemy.orm import Session
 from typing import Optional
-from app.database import get_db
 from app.services.analytics_engine import AnalyticsEngine
+from app.dependencies import get_analytics_engine
 
 router = APIRouter(prefix="/api/products", tags=["products"])
 
 
 @router.get("")
 def list_products(
-    days: int = Query(30, ge=1, le=180),
-    marketplace: Optional[str] = None,
-    category: Optional[str] = None,
     risk_level: Optional[str] = Query(None, description="Healthy | Needs Attention | Critical"),
     search: Optional[str] = None,
     sort_by: str = Query("revenue"),
     sort_dir: str = Query("desc", pattern="^(asc|desc)$"),
     page: int = Query(1, ge=1),
     page_size: int = Query(25, ge=1, le=200),
-    db: Session = Depends(get_db),
+    engine: AnalyticsEngine = Depends(get_analytics_engine),
 ):
-    engine = AnalyticsEngine(db, days=days, marketplace=marketplace, category=category)
     rows = engine.product_table()
 
     if risk_level:
@@ -40,8 +35,10 @@ def list_products(
 
 
 @router.get("/{product_id}")
-def get_product(product_id: int, days: int = Query(30, ge=1, le=180), db: Session = Depends(get_db)):
-    engine = AnalyticsEngine(db, days=days)
+def get_product(
+    product_id: int,
+    engine: AnalyticsEngine = Depends(get_analytics_engine),
+):
     detail = engine.product_detail(product_id=product_id)
     if not detail:
         raise HTTPException(404, "Product not found or no sales data in range")

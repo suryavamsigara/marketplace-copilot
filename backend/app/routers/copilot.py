@@ -4,6 +4,8 @@ from pydantic import BaseModel, Field
 from typing import Optional, List
 from app.database import get_db
 from app.ai import copilot_service
+from app.services.analytics_engine import AnalyticsEngine
+from app.dependencies import get_analytics_engine
 
 router = APIRouter(prefix="/api/copilot", tags=["copilot"])
 
@@ -26,13 +28,21 @@ class ExplainRequest(BaseModel):
 
 
 @router.post("/chat")
-def chat(req: ChatRequest, db: Session = Depends(get_db)):
+def chat(
+    req: ChatRequest,
+    db: Session = Depends(get_db),
+    engine: AnalyticsEngine = Depends(get_analytics_engine),
+):
     if len(req.message.strip()) == 0:
         raise HTTPException(400, "Message cannot be empty")
     history = [h.dict() for h in req.history] if req.history else []
-    return copilot_service.chat(db, req.message, history)
+    return copilot_service.chat(db, req.message, history, engine=engine)
 
 
 @router.post("/explain")
-def explain(req: ExplainRequest, db: Session = Depends(get_db)):
-    return copilot_service.explain(db, req.subject_type, req.subject_id)
+def explain(
+    req: ExplainRequest,
+    db: Session = Depends(get_db),
+    engine: AnalyticsEngine = Depends(get_analytics_engine),
+):
+    return copilot_service.explain(db, req.subject_type, req.subject_id, engine=engine)

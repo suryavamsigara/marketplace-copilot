@@ -2,94 +2,120 @@
 Tool functions the AI Copilot can call. Every tool returns REAL data
 computed by the deterministic analytics/opportunity engines - the LLM never
 receives raw database rows and never calculates metrics itself.
+
+Optimized with cached AnalyticsEngine instance sharing across tool executions.
 """
 import json
+from typing import Optional, Dict, Any
 from sqlalchemy.orm import Session
-from app.services import analytics_engine as ae
+from app.services.analytics_engine import AnalyticsEngine
 from app.services import opportunity_engine as oe
 from app.models.models import Opportunity, Product, Marketplace
 
 
-def get_dashboard_summary(db: Session, days: int = 30) -> dict:
-    return ae.dashboard_summary(db, days=days)
+def get_dashboard_summary(db: Session, days: int = 30, engine: Optional[AnalyticsEngine] = None) -> dict:
+    eng = engine or AnalyticsEngine(db, days=days)
+    return eng.dashboard_summary()
 
 
-def get_revenue_trend(db: Session, days: int = 30) -> dict:
-    return {"trend": ae.revenue_trend(db, days=days)}
+def get_revenue_trend(db: Session, days: int = 30, engine: Optional[AnalyticsEngine] = None) -> dict:
+    eng = engine or AnalyticsEngine(db, days=days)
+    return {"trend": eng.revenue_trend()}
 
 
-def get_marketplace_metrics(db: Session, days: int = 30) -> dict:
-    return {"marketplaces": ae.marketplace_metrics(db, days=days)}
+def get_marketplace_metrics(db: Session, days: int = 30, engine: Optional[AnalyticsEngine] = None) -> dict:
+    eng = engine or AnalyticsEngine(db, days=days)
+    return {"marketplaces": eng.marketplace_metrics()}
 
 
-def get_marketplace_performance(db: Session, marketplace: str, days: int = 30) -> dict:
-    all_mkts = ae.marketplace_metrics(db, days=days)
-    match = next((m for m in all_mkts if m["marketplace"].lower() == marketplace.lower()), None)
-    return match or {"error": f"Marketplace '{marketplace}' not found"}
+def get_marketplace_performance(db: Session, marketplace: str, days: int = 30, engine: Optional[AnalyticsEngine] = None) -> dict:
+    eng = engine or AnalyticsEngine(db, days=days)
+    detail = eng.marketplace_detail(marketplace_name=marketplace)
+    return detail or {"error": f"Marketplace '{marketplace}' not found"}
 
 
-def get_product_metrics(db: Session, product_id: int = None, product_name: str = None, days: int = 30) -> dict:
+def get_product_metrics(db: Session, product_id: int = None, product_name: str = None, days: int = 30, engine: Optional[AnalyticsEngine] = None) -> dict:
+    eng = engine or AnalyticsEngine(db, days=days)
     if product_id:
-        return ae.product_detail(db, product_id, days=days) or {"error": "Product not found"}
+        return eng.product_detail(product_id=product_id) or {"error": "Product not found"}
     if product_name:
-        rows = ae.product_table(db, days=days)
+        rows = eng.product_table()
         match = next((r for r in rows if product_name.lower() in r["product"].lower()), None)
         if match:
-            return ae.product_detail(db, match["product_id"], days=days)
+            return eng.product_detail(product_id=match["product_id"])
     return {"error": "Product not found"}
 
 
-def get_top_products(db: Session, days: int = 30, limit: int = 10) -> dict:
-    rows = ae.product_table(db, days=days)
+def get_top_products(db: Session, days: int = 30, limit: int = 10, engine: Optional[AnalyticsEngine] = None) -> dict:
+    eng = engine or AnalyticsEngine(db, days=days)
+    rows = eng.product_table()
     return {"products": rows[:limit]}
 
 
-def get_underperforming_products(db: Session, days: int = 30, limit: int = 10) -> dict:
-    rows = ae.product_table(db, days=days)
+def get_underperforming_products(db: Session, days: int = 30, limit: int = 10, engine: Optional[AnalyticsEngine] = None) -> dict:
+    eng = engine or AnalyticsEngine(db, days=days)
+    rows = eng.product_table()
     risky = [r for r in rows if r["status"] in ("Critical", "Needs Attention")]
     risky.sort(key=lambda r: (r["status"] != "Critical", -(r["revenue_at_risk"] or 0)))
     return {"products": risky[:limit]}
 
 
-def get_inventory_risks(db: Session, days: int = 30) -> dict:
-    rows = ae.product_table(db, days=days)
+def get_inventory_risks(db: Session, days: int = 30, engine: Optional[AnalyticsEngine] = None) -> dict:
+    eng = engine or AnalyticsEngine(db, days=days)
+    rows = eng.product_table()
     at_risk = [r for r in rows if r["days_of_stock"] is not None and r["days_of_stock"] < 14]
     at_risk.sort(key=lambda r: r["days_of_stock"])
     return {"at_risk_products": at_risk}
 
 
-def get_return_rate_anomalies(db: Session, days: int = 30) -> dict:
-    return {"anomalies": oe.detect_return_anomalies(db, days=days)}
+def get_return_rate_anomalies(db: Session, days: int = 30, engine: Optional[AnalyticsEngine] = None) -> dict:
+    eng = engine or AnalyticsEngine(db, days=days)
+    return {"anomalies": oe.detect_return_anomalies(db, days=days, engine=eng)}
 
 
-def get_pricing_opportunities(db: Session, days: int = 30) -> dict:
-    return {"opportunities": oe.detect_pricing_opportunities(db, days=days)}
+def get_pricing_opportunities(db: Session, days: int = 30, engine: Optional[AnalyticsEngine] = None) -> dict:
+    eng = engine or AnalyticsEngine(db, days=days)
+    return {"opportunities": oe.detect_pricing_opportunities(db, days=days, engine=eng)}
 
 
-def get_business_opportunities(db: Session, severity: str = None, limit: int = 15) -> dict:
+def get_business_opportunities(db: Session, severity: str = None, limit: int = 15, engine: Optional[AnalyticsEngine] = None) -> dict:
     q = db.query(Opportunity)
-    if severity:
+    if severity and severity != "All":
         q = q.filter(Opportunity.severity == severity)
     opps = q.order_by(Opportunity.score.desc()).limit(limit).all()
+    if not opps:
+        return {"opportunities": []}
+
+    prod_ids = [o.product_id for o in opps if o.product_id]
+    mkt_ids = [o.marketplace_id for o in opps if o.marketplace_id]
+
+    prod_map = {p.id: p.name for p in db.query(Product.id, Product.name).filter(Product.id.in_(prod_ids)).all()} if prod_ids else {}
+    mkt_map = {m.id: m.name for m in db.query(Marketplace.id, Marketplace.name).filter(Marketplace.id.in_(mkt_ids)).all()} if mkt_ids else {}
+
     result = []
     for o in opps:
-        entity = None
-        if o.product_id:
-            p = db.query(Product).get(o.product_id)
-            entity = p.name if p else None
-        elif o.marketplace_id:
-            m = db.query(Marketplace).get(o.marketplace_id)
-            entity = m.name if m else None
+        entity = prod_map.get(o.product_id) or mkt_map.get(o.marketplace_id) or "Business-wide"
+        try:
+            ev = json.loads(o.evidence) if isinstance(o.evidence, str) else o.evidence
+        except Exception:
+            ev = [str(o.evidence)]
         result.append({
-            "id": o.id, "type": o.opportunity_type, "severity": o.severity, "score": o.score,
-            "title": o.title, "entity": entity, "evidence": json.loads(o.evidence),
-            "recommendation": o.recommendation, "confidence": o.confidence,
+            "id": o.id,
+            "type": o.opportunity_type,
+            "severity": o.severity,
+            "score": float(o.score),
+            "title": o.title,
+            "entity": entity,
+            "evidence": ev,
+            "recommendation": o.recommendation,
+            "confidence": o.confidence,
         })
     return {"opportunities": result}
 
 
-def compare_periods(db: Session, days: int = 30) -> dict:
-    return ae.dashboard_summary(db, days=days)
+def compare_periods(db: Session, days: int = 30, engine: Optional[AnalyticsEngine] = None) -> dict:
+    eng = engine or AnalyticsEngine(db, days=days)
+    return eng.dashboard_summary()
 
 
 TOOL_REGISTRY = {
@@ -162,13 +188,20 @@ TOOL_SCHEMAS = [
 ]
 
 
-def call_tool(name: str, args: dict, db: Session):
+def call_tool(name: str, args: dict, db: Session, engine: Optional[AnalyticsEngine] = None):
+    """Executes the tool with the shared cached AnalyticsEngine instance."""
     fn = TOOL_REGISTRY.get(name)
     if not fn:
         return {"error": f"Unknown tool {name}"}
-    args = dict(args or {})
-    args["db"] = db
+    tool_args = dict(args or {})
+    tool_args["db"] = db
+    tool_args["engine"] = engine
     try:
-        return fn(**args)
+        return fn(**tool_args)
     except TypeError as e:
-        return {"error": str(e)}
+        # Fallback if function signature mismatch
+        try:
+            tool_args.pop("engine", None)
+            return fn(**tool_args)
+        except Exception as inner_e:
+            return {"error": str(inner_e)}
