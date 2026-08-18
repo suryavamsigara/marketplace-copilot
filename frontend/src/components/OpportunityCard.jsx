@@ -132,7 +132,8 @@ export default function OpportunityCard({ opportunity }) {
         <div className="flex items-center space-x-2">
           <button
             onClick={handleExplain}
-            className="flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 text-xs font-semibold transition"
+            title="Generate an AI root-cause explanation and operational justification for this opportunity"
+            className="flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 text-xs font-semibold transition hover:scale-105"
           >
             <Sparkles className="w-3 h-3 text-amber-400" />
             <span>Explain</span>

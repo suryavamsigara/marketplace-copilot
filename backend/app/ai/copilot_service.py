@@ -1,28 +1,34 @@
 """
 AI Copilot orchestration: React frontend -> FastAPI -> this service -> LLM API.
 
-The LLM is given a set of 4 high-density, read-only tools backed by the deterministic
-analytics/opportunity engines. It calls at most 1-2 tools to gather real evidence, then
-produces a structured, evidence-grounded answer.
+Architectural Separation:
+1. Chat Mode (Interactive Natural Language):
+   - Uses CHAT_SYSTEM_PROMPT with access to 4 essential tools.
+   - Executes dynamic tool calls (budgeted to 1-2 calls max) to fetch live data.
+2. Explain Mode (Deterministic Deep-Dive & Justification):
+   - Uses EXPLAIN_SYSTEM_PROMPT.
+   - Pre-injects complete deterministic metrics, evidence, and unit economics into prompt.
+   - Executes in 1 single fast LLM turn (0 tool overhead, zero extra network trips).
 """
 import json
-from typing import Optional
+from typing import Optional, Dict, Any, List
 from sqlalchemy.orm import Session
 from app.config import LLM_API_KEY, LLM_MODEL
 from app.ai.tools import TOOL_SCHEMAS, call_tool
 from app.services.analytics_engine import AnalyticsEngine
 from app.services import opportunity_engine as oe
+from app.models.models import Opportunity
 
-SYSTEM_PROMPT = """You are the Marketplace Performance Copilot — an expert AI operations analyst embedded in an internal marketplace BI tool.
+CHAT_SYSTEM_PROMPT = """You are the Marketplace Performance Copilot — an expert AI operations analyst embedded in an internal marketplace BI tool.
 
 CRITICAL EFFICIENCY & TOOL SELECTION RULES:
-1. Tool Calling Budget: Call at most 1 to 2 tools per response. NEVER call multiple tools in a loop when one tool satisfies the question.
-2. Tool Routing Guide:
-   - For general health, "what changed", revenue declines, or period comparisons -> Call `get_executive_overview(days=30)`. (This single tool already contains KPIs, channel growth, and trend data!).
+1. Tool Calling Budget: Call at most 1 to 2 tools per response. NEVER call redundant tools.
+2. Tool Routing:
+   - For general health, "what changed", revenue drops, or overview -> Call `get_executive_overview(days=30)`.
    - For channel-specific performance (Amazon, Myntra, Flipkart, Ajio) -> Call `get_marketplace_performance(marketplace="...")`.
    - For SKU, catalog, inventory, or stock-out lookups -> Call `get_product_intelligence(query="..." or risk_status="Critical")`.
    - For actionable business tasks, risks, pricing gaps, return spikes, or opportunities -> Call `get_prioritized_opportunities()`.
-3. Strict Grounding: Every metric, number, and percentage in your response MUST come from the tool output. Never hallucinate or calculate ungrounded numbers.
+3. Strict Grounding: Every metric, number, and percentage in your response MUST come from the tool output. Never hallucinate ungrounded numbers.
 4. Grounded Reasoning: Distinguish observed metrics from hypotheses. State likely explanations and concrete next steps.
 
 Format your response in clean Markdown with these sections:
@@ -32,6 +38,21 @@ Format your response in clean Markdown with these sections:
 ## Recommended Actions
 ## Estimated Impact
 ## Confidence
+"""
+
+EXPLAIN_SYSTEM_PROMPT = """You are the Marketplace Diagnostic Engine — an expert AI operations analyst explaining a specific KPI, SKU risk, or business opportunity.
+
+RULES:
+1. Direct Analysis: All factual metrics and evidence have been pre-computed by the deterministic analytics engine and provided in your prompt.
+2. Structure: Break down the root cause, business exposure, and operational justification.
+3. Tone: Executive, concise, and highly actionable.
+
+Format your explanation in clean Markdown with these sections:
+## Root Cause Diagnosis
+## Business Impact & Exposure
+## Supporting Evidence
+## Recommended Next Steps
+## Confidence Justification
 """
 
 
@@ -70,6 +91,7 @@ def _deterministic_fallback(db: Session, question: str, engine: Optional[Analyti
 
 
 def chat(db: Session, message: str, history: list = None, engine: Optional[AnalyticsEngine] = None) -> dict:
+    """Handles open-ended conversational questions with tool-calling capabilities."""
     eng = engine or AnalyticsEngine(db, days=30)
     if not LLM_API_KEY:
         return _deterministic_fallback(db, message, engine=eng)
@@ -78,14 +100,13 @@ def chat(db: Session, message: str, history: list = None, engine: Optional[Analy
         from openai import OpenAI
         client = OpenAI(api_key=LLM_API_KEY, base_url='https://api.deepseek.com')
 
-        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+        messages = [{"role": "system", "content": CHAT_SYSTEM_PROMPT}]
         for h in (history or [])[-6:]:
             messages.append({"role": h["role"], "content": h["content"]})
         messages.append({"role": "user", "content": message})
 
         tool_call_log = []
-        # Max 2 tool-calling iterations to enforce lean latency
-        for _ in range(2):
+        for _ in range(2):  # Max 2 tool-calling iterations
             resp = client.chat.completions.create(
                 model=LLM_MODEL,
                 messages=messages,
@@ -115,7 +136,6 @@ def chat(db: Session, message: str, history: list = None, engine: Optional[Analy
 
             return {"answer": msg.content, "mode": "llm", "tool_calls": tool_call_log}
 
-        # If 2 iterations completed and final content available:
         final_resp = client.chat.completions.create(
             model=LLM_MODEL,
             messages=messages,
@@ -134,18 +154,122 @@ def chat(db: Session, message: str, history: list = None, engine: Optional[Analy
 
 
 def explain(db: Session, subject_type: str, subject_id: str = None, engine: Optional[AnalyticsEngine] = None) -> dict:
-    """Powers the 'Explain' button on KPI cards and opportunity cards."""
+    """
+    Dedicated explanation engine: Pre-loads deterministic metrics into prompt
+    and generates instant 1-turn reasoning without extra tool call roundtrips.
+    """
     eng = engine or AnalyticsEngine(db, days=30)
+    prompt_context = ""
+
+    # 1. Opportunity Explain
     if subject_type == "opportunity" and subject_id:
-        from app.models.models import Opportunity
-        o = db.query(Opportunity).get(int(subject_id))
-        if not o:
-            return {"answer": "Opportunity not found.", "mode": "fallback"}
-        question = f"Explain this opportunity in detail and justify the recommended action: {o.title}."
-        return chat(db, question, engine=eng)
+        try:
+            opp_id = int(subject_id)
+            o = db.query(Opportunity).filter(Opportunity.id == opp_id).first()
+        except Exception:
+            o = None
 
-    if subject_type == "kpi" and subject_id:
-        question = f"Explain what changed for the KPI '{subject_id}' over the last 30 days: what changed, main contributors, evidence, likely explanation, and recommended action."
-        return chat(db, question, engine=eng)
+        if o:
+            try:
+                ev_list = json.loads(o.evidence) if isinstance(o.evidence, str) else o.evidence
+            except Exception:
+                ev_list = [str(o.evidence)]
+            ev_str = "\n- ".join(ev_list) if ev_list else "None"
 
-    return chat(db, "What changed this week and what should I prioritize?", engine=eng)
+            prompt_context = (
+                f"Explain and justify this prioritized business opportunity:\n\n"
+                f"**Opportunity Title:** {o.title}\n"
+                f"**Category/Type:** {o.opportunity_type}\n"
+                f"**Priority Score:** {o.score}/100 ({o.severity} severity, {o.confidence} confidence)\n"
+                f"**Supporting Evidence:**\n- {ev_str}\n"
+                f"**Estimated Impact / Exposure:** {o.impact}\n"
+                f"**Deterministic Recommended Action:** {o.recommendation}\n\n"
+                f"Please explain why this issue occurred, quantify the operational/revenue risk, and justify the concrete action steps to resolve it."
+            )
+
+    # 2. SKU / Product Explain
+    elif subject_type == "kpi" and str(subject_id).startswith("product_"):
+        pid = int(str(subject_id).replace("product_", ""))
+        p_detail = eng.product_detail(product_id=pid)
+        if p_detail:
+            prompt_context = (
+                f"Explain SKU performance and inventory health for this product:\n\n"
+                f"**Product:** {p_detail['name']} (SKU: {p_detail['sku']}, Category: {p_detail['category']})\n"
+                f"**Price:** ₹{p_detail['price']:,.2f} | **Unit Cost:** ₹{p_detail['cost']:,.2f} | **Margin:** {p_detail['margin_pct']}%\n"
+                f"**Period Revenue:** ₹{p_detail['revenue']:,.2f} | **Units Sold:** {p_detail['units_sold']} units\n"
+                f"**Conversion Rate:** {p_detail['conversion_rate']}% | **Return Rate:** {p_detail['return_rate']}%\n"
+                f"**Current Inventory:** {p_detail['inventory']} units | **Sales Velocity:** {p_detail['sales_velocity']} units/day\n"
+                f"**Days of Inventory Remaining:** {p_detail['days_of_stock']} days\n"
+                f"**Estimated Revenue at Risk:** ₹{p_detail['revenue_at_risk']:,.2f}\n\n"
+                f"Provide a root-cause explanation for velocity, inventory depletion trajectory, and priority merchandising action."
+            )
+
+    # 3. Marketplace Explain
+    elif subject_type == "kpi" and str(subject_id).startswith("marketplace_"):
+        mkt_name = str(subject_id).replace("marketplace_", "").capitalize()
+        mkt_detail = eng.marketplace_detail(marketplace_name=mkt_name)
+        if mkt_detail:
+            m = mkt_detail.get("marketplace", {})
+            prompt_context = (
+                f"Diagnose channel performance for **{mkt_name}**:\n\n"
+                f"**Revenue:** ₹{m.get('revenue', 0):,.2f} ({m.get('revenue_growth_pct', 0):+.1f}% period-over-period)\n"
+                f"**Revenue Share:** {m.get('revenue_contribution_pct', 0)}% of total catalog\n"
+                f"**Orders:** {m.get('orders', 0):,} | **Conversion Rate:** {m.get('conversion_rate', 0)}%\n"
+                f"**Return Rate:** {m.get('return_rate', 0)}% | **Channel Health:** {m.get('health', 'Healthy')}\n"
+                f"**Stockout Risk SKUs:** {m.get('stockout_risk_products', 0)} products\n\n"
+                f"Explain channel performance drivers, conversion momentum, and channel-specific operational steps."
+            )
+
+    # 4. General KPI Explain
+    elif subject_type == "kpi":
+        kpi_name = subject_id or "revenue"
+        summary = eng.dashboard_summary()
+        kpis = summary.get("kpis", {})
+        kpi_obj = kpis.get(kpi_name, {})
+        mkts = eng.marketplace_metrics()
+
+        mkt_summary_str = "\n".join([
+            f"- {m['marketplace']}: ₹{m['revenue']:,.0f} ({m['revenue_growth_pct']:+.1f}% growth, {m['return_rate']}% returns)"
+            for m in mkts
+        ])
+
+        prompt_context = (
+            f"Explain what changed for the **{kpi_name.upper()}** KPI over the last {eng.days} days:\n\n"
+            f"**Current Value:** {kpi_obj.get('value', 0)}\n"
+            f"**Previous Period Value:** {kpi_obj.get('previous', 0)}\n"
+            f"**Period-over-Period Change:** {kpi_obj.get('change_pct', 0):+.2f}%\n\n"
+            f"**Channel Performance Context:**\n{mkt_summary_str}\n\n"
+            f"Provide a root-cause explanation: what changed, main channel/product contributors, and recommended operational priorities."
+        )
+
+    if not prompt_context:
+        return chat(db, "What changed this week and what should I prioritize?", engine=eng)
+
+    if not LLM_API_KEY:
+        return _deterministic_fallback(db, prompt_context, engine=eng)
+
+    try:
+        from openai import OpenAI
+        client = OpenAI(api_key=LLM_API_KEY, base_url='https://api.deepseek.com')
+
+        messages = [
+            {"role": "system", "content": EXPLAIN_SYSTEM_PROMPT},
+            {"role": "user", "content": prompt_context},
+        ]
+
+        # Single direct completion without tool roundtrips
+        resp = client.chat.completions.create(
+            model=LLM_MODEL,
+            messages=messages,
+            max_tokens=900,
+        )
+
+        return {
+            "answer": resp.choices[0].message.content,
+            "mode": "llm",
+            "tool_calls": [],
+        }
+    except Exception as e:
+        fb = _deterministic_fallback(db, prompt_context, engine=eng)
+        fb["error"] = f"AI analysis unavailable ({type(e).__name__}); showing deterministic fallback."
+        return fb

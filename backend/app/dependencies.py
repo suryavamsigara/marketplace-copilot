@@ -1,18 +1,13 @@
 """
 FastAPI dependencies for request injection.
 
-Provides high-performance cached AnalyticsEngine instances across requests.
+Provides request-scoped AnalyticsEngine instances backed by thread-safe shared in-memory data caching.
 """
-import time
-from typing import Optional, Dict, Tuple
+from typing import Optional
 from fastapi import Depends, Query
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app.services.analytics_engine import AnalyticsEngine
-
-# Engine Cache: (cache_key) -> (timestamp, AnalyticsEngine)
-_engine_cache: Dict[str, Tuple[float, AnalyticsEngine]] = {}
-ENGINE_CACHE_TTL = 180  # 3 minutes TTL
+from app.services.analytics_engine import AnalyticsEngine, invalidate_analytics_cache
 
 
 def get_analytics_engine(
@@ -22,23 +17,12 @@ def get_analytics_engine(
     db: Session = Depends(get_db),
 ) -> AnalyticsEngine:
     """
-    FastAPI dependency that returns a cached AnalyticsEngine instance.
-    Reuses in-memory DataFrames across requests to eliminate repetitive DB queries.
+    FastAPI dependency injecting a request-scoped AnalyticsEngine.
+    Thread-safe: Each request gets its own DB session, while sharing cached in-memory DataFrames.
     """
-    now = time.time()
-    cache_key = f"{days}_{marketplace or ''}_{category or ''}"
-
-    if cache_key in _engine_cache:
-        cached_time, cached_engine = _engine_cache[cache_key]
-        if now - cached_time < ENGINE_CACHE_TTL:
-            cached_engine.db = db
-            return cached_engine
-
-    engine = AnalyticsEngine(db, days=days, marketplace=marketplace, category=category)
-    _engine_cache[cache_key] = (now, engine)
-    return engine
+    return AnalyticsEngine(db, days=days, marketplace=marketplace, category=category)
 
 
 def invalidate_engine_cache():
-    """Clears cached AnalyticsEngine instances."""
-    _engine_cache.clear()
+    """Clears global analytics in-memory caches."""
+    invalidate_analytics_cache()

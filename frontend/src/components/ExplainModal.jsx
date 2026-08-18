@@ -60,8 +60,16 @@ export default function ExplainModal() {
   if (!isOpen) return null;
 
   const handleOpenInCopilot = () => {
+    const promptText = `Can you provide a deep-dive explanation for: ${title}?`;
+    const answerText = data?.answer || '';
     closeExplain();
-    navigate('/copilot');
+    navigate('/copilot', {
+      state: {
+        initialPrompt: promptText,
+        initialAnswer: answerText,
+        title: title,
+      },
+    });
   };
 
   return (
@@ -118,7 +126,7 @@ export default function ExplainModal() {
                   <Cpu className="w-3.5 h-3.5 text-amber-400" />
                   <span className="text-slate-300 font-medium">
                     {data.mode === 'llm'
-                      ? 'AI Reasoning Layer (DeepSeek / GPT with Tool Calling)'
+                      ? 'AI Reasoning Layer (DeepSeek / GPT Grounded)'
                       : 'Deterministic Analytics Engine Grounding'}
                   </span>
                 </div>

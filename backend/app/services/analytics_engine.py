@@ -7,16 +7,35 @@ is computed HERE in plain Python/Pandas. The AI layer never calculates
 metrics - it only reads and explains the numbers this module produces.
 
 Class-Based Architecture:
-- Single Source of Truth: Loads sales and inventory data once per analysis context.
-- In-Memory Caching: Reuses computed DataFrames and metrics across calls.
-- Modular & Decoupled: Clean encapsulation with minimal database round-trips.
+- Single Source of Truth: Loads sales and inventory data once into a thread-safe in-memory cache.
+- Thread-Safe Isolation: Request-scoped instances with separate DB sessions share cached DataFrames.
+- High Performance: Sub-millisecond in-memory computations without database session collisions.
 """
+import threading
+import time
 from datetime import date, timedelta
 from typing import Optional, Dict, Any, List, Tuple
 import pandas as pd
 import numpy as np
 from sqlalchemy.orm import Session
-from app.models.models import SalesDaily, Inventory, Product, Marketplace, CompetitorPrice, Opportunity
+from app.models.models import SalesDaily, Inventory, Product, Marketplace, Opportunity
+
+# Global thread-safe in-memory dataset cache
+_DATA_LOCK = threading.Lock()
+_CACHE_TTL_SECONDS = 180  # 3 minutes
+
+_GLOBAL_LATEST_DATE: Optional[Tuple[float, date]] = None
+_GLOBAL_SALES_DF: Optional[Tuple[float, pd.DataFrame]] = None
+_GLOBAL_INV_DF: Optional[Tuple[float, pd.DataFrame]] = None
+
+
+def invalidate_analytics_cache():
+    """Clears the global in-memory dataset cache."""
+    global _GLOBAL_LATEST_DATE, _GLOBAL_SALES_DF, _GLOBAL_INV_DF
+    with _DATA_LOCK:
+        _GLOBAL_LATEST_DATE = None
+        _GLOBAL_SALES_DF = None
+        _GLOBAL_INV_DF = None
 
 
 def pct_change(curr: float, prev: float) -> float:
@@ -28,8 +47,9 @@ def pct_change(curr: float, prev: float) -> float:
 
 class AnalyticsEngine:
     """
-    Stateful analytics engine that loads dataset snapshots once and
-    computes cached, deterministic business intelligence metrics.
+    Analytics engine that evaluates deterministic business metrics.
+    Safe for concurrent requests: each instance uses its own DB session,
+    while accessing thread-safe cached DataFrames in memory.
     """
 
     def __init__(
@@ -44,13 +64,8 @@ class AnalyticsEngine:
         self.marketplace = marketplace
         self.category = category
 
-        # Lazy cached database snapshots
-        self._latest_date: Optional[date] = None
+        # Instance caches
         self._period: Optional[Tuple[date, date, date, date]] = None
-        self._raw_sales_df: Optional[pd.DataFrame] = None
-        self._inventory_df: Optional[pd.DataFrame] = None
-
-        # Cached computed analytics
         self._dashboard_summary_cache: Optional[Dict[str, Any]] = None
         self._revenue_trend_cache: Dict[str, List[Dict[str, Any]]] = {}
         self._marketplace_metrics_cache: Optional[List[Dict[str, Any]]] = None
@@ -58,11 +73,19 @@ class AnalyticsEngine:
 
     @property
     def latest_date(self) -> date:
-        """Cached latest sales date in the database."""
-        if self._latest_date is None:
+        """Thread-safely cached latest sales date."""
+        global _GLOBAL_LATEST_DATE
+        now = time.time()
+        if _GLOBAL_LATEST_DATE and (now - _GLOBAL_LATEST_DATE[0] < _CACHE_TTL_SECONDS):
+            return _GLOBAL_LATEST_DATE[1]
+
+        with _DATA_LOCK:
+            if _GLOBAL_LATEST_DATE and (now - _GLOBAL_LATEST_DATE[0] < _CACHE_TTL_SECONDS):
+                return _GLOBAL_LATEST_DATE[1]
             d = self.db.query(SalesDaily.date).order_by(SalesDaily.date.desc()).first()
-            self._latest_date = d[0] if d else date.today()
-        return self._latest_date
+            val = d[0] if d else date.today()
+            _GLOBAL_LATEST_DATE = (now, val)
+            return val
 
     @property
     def period(self) -> Tuple[date, date, date, date]:
@@ -79,11 +102,20 @@ class AnalyticsEngine:
 
     def get_raw_sales_df(self) -> pd.DataFrame:
         """
-        Loads the combined sales, product, and marketplace dataset spanning
-        both current and previous periods in a single optimized SQL query.
+        Loads and caches the sales, product, and marketplace dataset spanning
+        historical lookback periods. Thread-safe across concurrent requests.
         """
-        if self._raw_sales_df is None:
+        global _GLOBAL_SALES_DF
+        now = time.time()
+        if _GLOBAL_SALES_DF and (now - _GLOBAL_SALES_DF[0] < _CACHE_TTL_SECONDS):
+            return _GLOBAL_SALES_DF[1]
+
+        with _DATA_LOCK:
+            if _GLOBAL_SALES_DF and (now - _GLOBAL_SALES_DF[0] < _CACHE_TTL_SECONDS):
+                return _GLOBAL_SALES_DF[1]
+
             _, end, prev_start, _ = self.period
+            # Fetch lookback dataset
             q = (
                 self.db.query(
                     SalesDaily.date,
@@ -106,10 +138,10 @@ class AnalyticsEngine:
                 )
                 .join(Product, SalesDaily.product_id == Product.id)
                 .join(Marketplace, SalesDaily.marketplace_id == Marketplace.id)
-                .filter(SalesDaily.date >= prev_start, SalesDaily.date <= end)
+                .filter(SalesDaily.date >= prev_start - timedelta(days=60), SalesDaily.date <= end)
             )
             rows = q.all()
-            self._raw_sales_df = pd.DataFrame(
+            df = pd.DataFrame(
                 rows,
                 columns=[
                     "date",
@@ -131,7 +163,8 @@ class AnalyticsEngine:
                     "marketplace_name",
                 ],
             )
-        return self._raw_sales_df
+            _GLOBAL_SALES_DF = (now, df)
+            return df
 
     def get_sales_df(
         self,
@@ -141,7 +174,7 @@ class AnalyticsEngine:
         category: Optional[str] = None,
     ) -> pd.DataFrame:
         """
-        Retrieves in-memory filtered sales DataFrame without querying the database again.
+        Retrieves in-memory filtered sales DataFrame without querying the database.
         """
         df = self.get_raw_sales_df()
         if df.empty:
@@ -164,35 +197,41 @@ class AnalyticsEngine:
 
     def get_inventory_df(self, as_of: Optional[date] = None) -> pd.DataFrame:
         """
-        Loads the latest inventory snapshot once into memory.
+        Loads the latest inventory snapshot once into thread-safe memory.
         """
-        if as_of is None and self._inventory_df is not None:
-            return self._inventory_df
+        global _GLOBAL_INV_DF
+        now = time.time()
+        if as_of is None and _GLOBAL_INV_DF and (now - _GLOBAL_INV_DF[0] < _CACHE_TTL_SECONDS):
+            return _GLOBAL_INV_DF[1]
 
-        target_date = as_of
-        if target_date is None:
-            latest = self.db.query(Inventory.date).order_by(Inventory.date.desc()).first()
-            target_date = latest[0] if latest else None
+        with _DATA_LOCK:
+            if as_of is None and _GLOBAL_INV_DF and (now - _GLOBAL_INV_DF[0] < _CACHE_TTL_SECONDS):
+                return _GLOBAL_INV_DF[1]
 
-        if target_date is None:
-            df = pd.DataFrame(columns=["date", "product_id", "marketplace_id", "stock", "incoming_stock"])
-        else:
-            q = self.db.query(
-                Inventory.date,
-                Inventory.product_id,
-                Inventory.marketplace_id,
-                Inventory.stock,
-                Inventory.incoming_stock,
-            ).filter(Inventory.date == target_date)
-            rows = q.all()
-            df = pd.DataFrame(
-                rows,
-                columns=["date", "product_id", "marketplace_id", "stock", "incoming_stock"],
-            )
+            target_date = as_of
+            if target_date is None:
+                latest = self.db.query(Inventory.date).order_by(Inventory.date.desc()).first()
+                target_date = latest[0] if latest else None
 
-        if as_of is None:
-            self._inventory_df = df
-        return df
+            if target_date is None:
+                df = pd.DataFrame(columns=["date", "product_id", "marketplace_id", "stock", "incoming_stock"])
+            else:
+                q = self.db.query(
+                    Inventory.date,
+                    Inventory.product_id,
+                    Inventory.marketplace_id,
+                    Inventory.stock,
+                    Inventory.incoming_stock,
+                ).filter(Inventory.date == target_date)
+                rows = q.all()
+                df = pd.DataFrame(
+                    rows,
+                    columns=["date", "product_id", "marketplace_id", "stock", "incoming_stock"],
+                )
+
+            if as_of is None:
+                _GLOBAL_INV_DF = (now, df)
+            return df
 
     @staticmethod
     def summarize_kpis(df: pd.DataFrame) -> Dict[str, Any]:
@@ -401,7 +440,7 @@ class AnalyticsEngine:
         top_products = sorted(prod_list, key=lambda p: p["revenue"], reverse=True)[:5]
         worst_products = sorted(prod_list, key=lambda p: p["revenue"])[:5]
 
-        # 3. Channel Opportunities in a fast targeted query
+        # 3. Channel Opportunities
         mkt_row = self.db.query(Marketplace.id).filter(Marketplace.name == marketplace_name).first()
         mkt_id = mkt_row[0] if mkt_row else None
         opps = []
