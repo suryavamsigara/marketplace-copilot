@@ -137,22 +137,6 @@ export default function Header() {
             <RefreshCw className="w-3.5 h-3.5" />
           </button>
         )}
-
-        {/* Quick Explain Button */}
-        <button
-          onClick={() =>
-            openExplain(
-              'kpi',
-              'revenue',
-              'AI Period Analysis: What Changed?',
-              'Deep dive into current period revenue drivers, market shifts, and priority actions'
-            )
-          }
-          className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-medium text-xs transition-colors shadow-sm"
-        >
-          <Sparkles className="w-3.5 h-3.5" />
-          <span>Explain Period</span>
-        </button>
       </div>
     </header>
   );

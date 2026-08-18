@@ -222,6 +222,7 @@ export default function ProductsPage() {
                   <th
                     className="px-4 py-3.5 cursor-pointer hover:text-amber-400 transition"
                     onClick={() => handleSort('revenue_at_risk')}
+                    title="Estimated revenue you could lose if this SKU runs out of stock"
                   >
                     <div className="flex items-center space-x-1">
                       <span>Rev At Risk</span>
@@ -276,13 +277,12 @@ export default function ProductsPage() {
                       <td className="px-4 py-4 font-mono">
                         {p.days_of_stock !== null ? (
                           <span
-                            className={`font-bold px-2 py-0.5 rounded ${
-                              isStockoutCritical
-                                ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
-                                : isStockoutWarning
+                            className={`font-bold px-2 py-0.5 rounded ${isStockoutCritical
+                              ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
+                              : isStockoutWarning
                                 ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
                                 : 'text-slate-300'
-                            }`}
+                              }`}
                           >
                             {p.days_of_stock}d
                           </span>

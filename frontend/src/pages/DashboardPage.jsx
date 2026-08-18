@@ -194,7 +194,7 @@ export default function DashboardPage() {
               value={formatCurrency(kpis.avg_order_value?.value)}
               previousValue={formatCurrency(kpis.avg_order_value?.previous)}
               changePct={kpis.avg_order_value?.change_pct}
-              subtitle="Average basket revenue"
+              subtitle="Revenue per order"
             />
             <KPICard
               id="return_rate"
@@ -203,7 +203,7 @@ export default function DashboardPage() {
               previousValue={`${Number(kpis.return_rate?.previous || 0).toFixed(2)}%`}
               changePct={kpis.return_rate?.change_pct}
               inverseSentiment={true}
-              subtitle="Returns / units sold"
+              subtitle="% of units returned"
             />
           </div>
         )}
@@ -228,21 +228,19 @@ export default function DashboardPage() {
             <div className="flex items-center bg-slate-900 border border-slate-800 rounded-lg p-0.5 text-xs">
               <button
                 onClick={() => setGranularity('daily')}
-                className={`px-2.5 py-1 rounded-md font-medium transition ${
-                  granularity === 'daily'
+                className={`px-2.5 py-1 rounded-md font-medium transition ${granularity === 'daily'
                     ? 'bg-amber-500 text-slate-950 font-bold shadow-sm'
                     : 'text-slate-400 hover:text-slate-200'
-                }`}
+                  }`}
               >
                 Daily
               </button>
               <button
                 onClick={() => setGranularity('weekly')}
-                className={`px-2.5 py-1 rounded-md font-medium transition ${
-                  granularity === 'weekly'
+                className={`px-2.5 py-1 rounded-md font-medium transition ${granularity === 'weekly'
                     ? 'bg-amber-500 text-slate-950 font-bold shadow-sm'
                     : 'text-slate-400 hover:text-slate-200'
-                }`}
+                  }`}
               >
                 Weekly
               </button>
