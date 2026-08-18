@@ -88,9 +88,19 @@ export const api = {
   },
 
   // Opportunities
-  getOpportunities: ({ severity, opportunity_type, marketplace, category } = {}) => {
-    const params = new URLSearchParams();
-    if (severity) params.append('severity', severity);
+  getOpportunities: ({
+    severity,
+    opportunity_type,
+    marketplace,
+    category,
+    page = 1,
+    page_size = 12,
+  } = {}) => {
+    const params = new URLSearchParams({
+      page,
+      page_size,
+    });
+    if (severity && severity !== 'All') params.append('severity', severity);
     if (opportunity_type) params.append('opportunity_type', opportunity_type);
     if (marketplace) params.append('marketplace', marketplace);
     if (category) params.append('category', category);
