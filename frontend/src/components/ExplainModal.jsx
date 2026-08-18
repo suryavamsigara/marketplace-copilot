@@ -126,7 +126,7 @@ export default function ExplainModal() {
                   <Cpu className="w-3.5 h-3.5 text-amber-400" />
                   <span className="text-slate-300 font-medium">
                     {data.mode === 'llm'
-                      ? 'AI Reasoning Layer (DeepSeek / GPT Grounded)'
+                      ? 'AI Reasoning Layer'
                       : 'Deterministic Analytics Engine Grounding'}
                   </span>
                 </div>
