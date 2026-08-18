@@ -143,7 +143,6 @@ def chat(db: Session, message: str, history: list = None, engine: Optional[Analy
         final_resp = client.chat.completions.create(
             model=LLM_MODEL,
             messages=messages,
-            max_tokens=2000,
         )
         final_msg = final_resp.choices[0].message
         final_answer = (final_msg.content or "").strip()
@@ -269,7 +268,6 @@ def explain(db: Session, subject_type: str, subject_id: str = None, engine: Opti
         resp = client.chat.completions.create(
             model=LLM_MODEL,
             messages=messages,
-            max_tokens=2000,
         )
 
         msg = resp.choices[0].message
