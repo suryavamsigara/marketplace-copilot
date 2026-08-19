@@ -2,9 +2,9 @@
 AI Copilot orchestration: React frontend -> FastAPI -> this service -> LLM API.
 
 Architectural Separation:
-1. Chat Mode (Interactive Natural Language with Live Token Streaming):
+1. Chat Mode (Interactive Natural Language with Live Tool Trace & Streaming):
    - Uses CHAT_SYSTEM_PROMPT with access to 4 essential tools.
-   - Executes dynamic tool calls to fetch live telemetry, then streams the grounded answer.
+   - Streams live tool execution activity events (SSE) before streaming the synthesized markdown response.
 2. Explain Mode (Deterministic Deep-Dive & Streaming Justification):
    - Uses EXPLAIN_SYSTEM_PROMPT.
    - Pre-injects complete deterministic metrics, evidence, and unit economics into prompt.
@@ -56,6 +56,22 @@ Format your explanation in clean Markdown with these sections:
 """
 
 
+def _get_tool_friendly_label(tool_name: str, args: dict) -> str:
+    """Returns a clean, user-friendly activity label for tool execution."""
+    if tool_name == "get_executive_overview":
+        days = args.get("days", 30)
+        return f"Querying {days}-day executive KPIs & cross-channel trends"
+    elif tool_name == "get_marketplace_performance":
+        mkt = args.get("marketplace") or "marketplace channels"
+        return f"Analyzing channel breakdown & SKU velocity for {mkt}"
+    elif tool_name == "get_product_intelligence":
+        q = args.get("query") or args.get("risk_status") or "catalog"
+        return f"Scanning product inventory & stock-out risk for '{q}'"
+    elif tool_name == "get_prioritized_opportunities":
+        return "Evaluating prioritized business opportunities & revenue exposure"
+    return f"Querying operational analytics tool: {tool_name}"
+
+
 def _deterministic_fallback(db: Session, question: str, engine: Optional[AnalyticsEngine] = None) -> dict:
     """Non-LLM fallback: builds a grounded answer directly from the
     analytics/opportunity engines when no LLM API key is configured."""
@@ -97,24 +113,26 @@ def chat_stream(
     engine: Optional[AnalyticsEngine] = None,
 ) -> Generator[str, None, None]:
     """
-    Streams conversational assistant responses token-by-token with tool-calling capabilities.
+    Streams conversational assistant responses with real-time tool execution labels.
+    Emits structured Server-Sent Events (SSE).
     """
     eng = engine or AnalyticsEngine(db, days=30)
     if not LLM_API_KEY:
         fb = _deterministic_fallback(db, message, engine=eng)
-        yield fb.get("answer", "")
+        yield f"data: {json.dumps({'type': 'token', 'content': fb.get('answer', '')})}\n\n"
+        yield f"data: {json.dumps({'type': 'done'})}\n\n"
         return
 
     try:
         from openai import OpenAI
-        client = OpenAI(api_key=LLM_API_KEY, base_url='https://api.deepseek.com', timeout=30.0)
+        client = OpenAI(api_key=LLM_API_KEY, base_url='https://api.deepseek.com', timeout=35.0)
 
         messages = [{"role": "system", "content": CHAT_SYSTEM_PROMPT}]
         for h in (history or [])[-6:]:
             messages.append({"role": h["role"], "content": h["content"]})
         messages.append({"role": "user", "content": message})
 
-        # Step 1: Tool execution rounds (non-streaming to collect data)
+        # Step 1: Tool execution rounds with live UI tool event updates
         for _ in range(2):
             resp = client.chat.completions.create(
                 model=LLM_MODEL,
@@ -133,16 +151,25 @@ def chat_stream(
                 })
                 for tc in msg.tool_calls:
                     args = json.loads(tc.function.arguments or "{}")
+                    label = _get_tool_friendly_label(tc.function.name, args)
+
+                    # Emit live tool start event
+                    yield f"data: {json.dumps({'type': 'tool_start', 'tool': tc.function.name, 'label': label, 'args': args})}\n\n"
+
                     result = call_tool(tc.function.name, args, db=db, engine=eng)
+
                     messages.append({
                         "role": "tool",
                         "tool_call_id": tc.id,
                         "content": json.dumps(result, default=str)[:5000],
                     })
+
+                    # Emit tool completed event
+                    yield f"data: {json.dumps({'type': 'tool_done', 'tool': tc.function.name, 'label': label})}\n\n"
                 continue
             break
 
-        # Step 2: Stream final grounded response
+        # Step 2: Stream final grounded response tokens
         response = client.chat.completions.create(
             model=LLM_MODEL,
             messages=messages,
@@ -158,15 +185,18 @@ def chat_stream(
             token = getattr(delta, "content", None) or ""
             if token:
                 has_output = True
-                yield token
+                yield f"data: {json.dumps({'type': 'token', 'content': token})}\n\n"
 
         if not has_output:
             fb = _deterministic_fallback(db, message, engine=eng)
-            yield fb.get("answer", "")
+            yield f"data: {json.dumps({'type': 'token', 'content': fb.get('answer', '')})}\n\n"
 
-    except Exception:
+        yield f"data: {json.dumps({'type': 'done'})}\n\n"
+
+    except Exception as e:
         fb = _deterministic_fallback(db, message, engine=eng)
-        yield fb.get("answer", "")
+        yield f"data: {json.dumps({'type': 'token', 'content': fb.get('answer', '')})}\n\n"
+        yield f"data: {json.dumps({'type': 'done'})}\n\n"
 
 
 def chat(db: Session, message: str, history: list = None, engine: Optional[AnalyticsEngine] = None) -> dict:

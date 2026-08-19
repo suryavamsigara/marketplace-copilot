@@ -12,6 +12,8 @@ import {
   Copy,
   Check,
   RotateCcw,
+  Activity,
+  Cpu,
 } from 'lucide-react';
 
 const SUGGESTED_PROMPTS = [
@@ -79,6 +81,7 @@ export default function CopilotPage() {
         content: '',
         mode: 'llm',
         tool_calls: [],
+        currentTool: 'Evaluating question & selecting analytical tools...',
       },
     ]);
 
@@ -94,15 +97,42 @@ export default function CopilotPage() {
           message: text,
           history: historyPayload,
         },
-        (accumulated) => {
+        (event) => {
           setMessages((prev) => {
             const updated = [...prev];
             const lastIdx = updated.length - 1;
             if (lastIdx >= 0 && updated[lastIdx].role === 'assistant') {
-              updated[lastIdx] = {
-                ...updated[lastIdx],
-                content: accumulated,
-              };
+              const current = updated[lastIdx];
+
+              if (event.type === 'tool_start') {
+                const existingTools = current.tool_calls || [];
+                const alreadyExists = existingTools.some(
+                  (t) => t.tool === event.tool && JSON.stringify(t.args) === JSON.stringify(event.args)
+                );
+                updated[lastIdx] = {
+                  ...current,
+                  currentTool: event.label,
+                  tool_calls: alreadyExists
+                    ? existingTools
+                    : [...existingTools, { tool: event.tool, label: event.label, args: event.args }],
+                };
+              } else if (event.type === 'tool_done') {
+                updated[lastIdx] = {
+                  ...current,
+                  currentTool: 'Synthesizing verified business metrics...',
+                };
+              } else if (event.type === 'token') {
+                updated[lastIdx] = {
+                  ...current,
+                  content: event.accumulated,
+                  currentTool: null,
+                };
+              } else if (event.type === 'done') {
+                updated[lastIdx] = {
+                  ...current,
+                  currentTool: null,
+                };
+              }
             }
             return updated;
           });
@@ -118,6 +148,7 @@ export default function CopilotPage() {
             content: `Unable to reach the reasoning service: ${err.message}`,
             mode: 'error',
             error: err.message,
+            currentTool: null,
           };
         }
         return updated;
@@ -197,22 +228,34 @@ export default function CopilotPage() {
                   </div>
                   <div className="flex-1 min-w-0 pt-1">
 
+                    {/* Live Tool Execution Status Pill */}
+                    {m.currentTool && (
+                      <div className="mb-3 flex items-center space-x-2.5 px-3 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-300 text-xs font-medium w-fit animate-pulse">
+                        <Activity className="w-3.5 h-3.5 text-amber-400 animate-spin" style={{ animationDuration: '3s' }} />
+                        <span>{m.currentTool}</span>
+                      </div>
+                    )}
+
                     {/* Tool trace (subtle UI) */}
-                    {m.tool_calls && m.tool_calls.length > 0 && (
+                    {m.tool_calls && m.tool_calls.length > 0 && !m.currentTool && (
                       <div className="mb-3">
                         <button
                           onClick={() => toggleToolTrace(idx)}
                           className="flex items-center space-x-2 text-[13px] text-slate-500 hover:text-slate-300 transition-colors"
                         >
-                          <Terminal className="w-3.5 h-3.5" />
+                          <Terminal className="w-3.5 h-3.5 text-amber-400/80" />
                           <span>Analyzed data using {m.tool_calls.length} tool{m.tool_calls.length > 1 ? 's' : ''}</span>
                           {expandedTools[idx] ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
                         </button>
                         {expandedTools[idx] && (
                           <div className="mt-2 p-3 bg-slate-900/50 rounded-xl border border-slate-800 text-[12px] font-mono text-slate-400 space-y-2">
                             {m.tool_calls.map((tc, tIdx) => (
-                              <div key={tIdx}>
-                                <span className="text-slate-300">⚡ {tc.tool}()</span>
+                              <div key={tIdx} className="flex items-start space-x-2">
+                                <span className="text-amber-400">⚡</span>
+                                <div>
+                                  <span className="text-slate-300 font-semibold">{tc.tool}()</span>
+                                  {tc.label && <span className="text-slate-500 text-[11px] block">{tc.label}</span>}
+                                </div>
                               </div>
                             ))}
                           </div>
@@ -249,11 +292,13 @@ export default function CopilotPage() {
                           {m.content}
                         </ReactMarkdown>
                       ) : (
-                        <div className="flex items-center space-x-1.5 py-2">
-                          <div className="w-2 h-2 rounded-full bg-slate-400 animate-bounce" />
-                          <div className="w-2 h-2 rounded-full bg-slate-400 animate-bounce" style={{ animationDelay: '0.2s' }} />
-                          <div className="w-2 h-2 rounded-full bg-slate-400 animate-bounce" style={{ animationDelay: '0.4s' }} />
-                        </div>
+                        !m.currentTool && (
+                          <div className="flex items-center space-x-1.5 py-2">
+                            <div className="w-2 h-2 rounded-full bg-slate-400 animate-bounce" />
+                            <div className="w-2 h-2 rounded-full bg-slate-400 animate-bounce" style={{ animationDelay: '0.2s' }} />
+                            <div className="w-2 h-2 rounded-full bg-slate-400 animate-bounce" style={{ animationDelay: '0.4s' }} />
+                          </div>
+                        )
                       )}
                     </div>
 
