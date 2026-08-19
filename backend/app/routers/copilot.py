@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field
 from typing import Optional, List
@@ -45,4 +46,10 @@ def explain(
     db: Session = Depends(get_db),
     engine: AnalyticsEngine = Depends(get_analytics_engine),
 ):
-    return copilot_service.explain(db, req.subject_type, req.subject_id, engine=engine)
+    """
+    Streams explanation response in real-time token by token.
+    """
+    return StreamingResponse(
+        copilot_service.explain_stream(db, req.subject_type, req.subject_id, engine=engine),
+        media_type="text/plain",
+    )

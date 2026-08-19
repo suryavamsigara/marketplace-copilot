@@ -172,4 +172,38 @@ export const api = {
       body: JSON.stringify({ subject_type, subject_id }),
     });
   },
+
+  streamExplain: async ({ subject_type, subject_id }, onChunk) => {
+    const url = `${API_BASE}/api/copilot/explain`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ subject_type, subject_id }),
+    });
+
+    if (!res.ok) {
+      let errorMsg = `HTTP Error ${res.status}`;
+      try {
+        const errJson = await res.json();
+        errorMsg = errJson.detail || errJson.error || errorMsg;
+      } catch (_) {}
+      throw new Error(errorMsg);
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let accumulated = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const chunk = decoder.decode(value, { stream: true });
+      accumulated += chunk;
+      if (onChunk) {
+        onChunk(accumulated, chunk);
+      }
+    }
+
+    return accumulated;
+  },
 };

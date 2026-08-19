@@ -48,7 +48,7 @@ export default function ExplainModal() {
 
   const [loading, setLoading] = useState(false);
   const [stepIndex, setStepIndex] = useState(0);
-  const [data, setData] = useState(null);
+  const [streamedText, setStreamedText] = useState('');
   const [error, setError] = useState(null);
 
   // Cycle through informative analysis steps while loading
@@ -65,23 +65,34 @@ export default function ExplainModal() {
 
   useEffect(() => {
     if (!isOpen) {
-      setData(null);
+      setStreamedText('');
       setError(null);
       return;
     }
 
     let isMounted = true;
     setLoading(true);
+    setStreamedText('');
     setError(null);
 
     api
-      .explainSubject({
-        subject_type: subjectType,
-        subject_id: subjectId,
-      })
-      .then((res) => {
+      .streamExplain(
+        {
+          subject_type: subjectType,
+          subject_id: subjectId,
+        },
+        (accumulated) => {
+          if (isMounted) {
+            setStreamedText(accumulated);
+            // Once first characters stream in, clear waiting spinner
+            if (accumulated.trim().length > 0) {
+              setLoading(false);
+            }
+          }
+        }
+      )
+      .then(() => {
         if (isMounted) {
-          setData(res);
           setLoading(false);
         }
       })
@@ -104,12 +115,11 @@ export default function ExplainModal() {
 
   const handleOpenInCopilot = () => {
     const promptText = `Can you provide a deep-dive explanation for: ${title}?`;
-    const answerText = data?.answer || '';
     closeExplain();
     navigate('/copilot', {
       state: {
         initialPrompt: promptText,
-        initialAnswer: answerText,
+        initialAnswer: streamedText,
         title: title,
       },
     });
@@ -139,7 +149,7 @@ export default function ExplainModal() {
 
         {/* Content Body */}
         <div className="p-6 overflow-y-auto flex-1 space-y-4">
-          {loading && (
+          {loading && !streamedText && (
             <div className="py-12 flex flex-col items-center justify-center space-y-5 animate-in fade-in duration-300">
               {/* Spinning Ring with Active Stage Icon */}
               <div className="relative w-14 h-14 flex items-center justify-center">
@@ -162,10 +172,11 @@ export default function ExplainModal() {
                 {LOADING_STEPS.map((_, idx) => (
                   <div
                     key={idx}
-                    className={`h-1.5 rounded-full transition-all duration-300 ${idx === stepIndex
+                    className={`h-1.5 rounded-full transition-all duration-300 ${
+                      idx === stepIndex
                         ? 'w-6 bg-amber-400 shadow-sm shadow-amber-400/40'
                         : 'w-1.5 bg-slate-700'
-                      }`}
+                    }`}
                   />
                 ))}
               </div>
@@ -182,21 +193,18 @@ export default function ExplainModal() {
             </div>
           )}
 
-          {data && (
-            <div className="space-y-4">
+          {streamedText && (
+            <div className="space-y-4 animate-in fade-in duration-200">
               {/* Tool Execution or Mode Pill */}
               <div className="flex items-center justify-between px-3 py-2 rounded-lg bg-slate-950/60 border border-slate-800 text-xs">
                 <div className="flex items-center space-x-2">
                   <Cpu className="w-3.5 h-3.5 text-amber-400" />
-                  <span className="text-slate-300 font-medium">
-                    {data.mode === 'llm'
-                      ? 'AI Reasoning Layer'
-                      : 'Deterministic Analytics Engine Grounding'}
-                  </span>
+                  <span className="text-slate-300 font-medium">AI Reasoning Layer</span>
                 </div>
-                {data.tool_calls && data.tool_calls.length > 0 && (
-                  <span className="text-[11px] font-mono text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
-                    {data.tool_calls.length} tools executed
+                {loading && (
+                  <span className="flex items-center space-x-1 text-[11px] font-mono text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping mr-1" />
+                    Streaming live...
                   </span>
                 )}
               </div>
@@ -228,7 +236,7 @@ export default function ExplainModal() {
                     ),
                   }}
                 >
-                  {data.answer}
+                  {streamedText}
                 </ReactMarkdown>
               </div>
             </div>

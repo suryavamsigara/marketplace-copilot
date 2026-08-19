@@ -357,9 +357,6 @@ export default function DashboardPage() {
                   Stock-out Watchlist
                 </span>
               </div>
-              <p className="text-xs text-slate-400">
-                Top-left quadrant indicates high-velocity SKUs with dangerous stock-out risk (&lt;14 days)
-              </p>
             </div>
             <div className="text-[11px] text-slate-400 flex items-center space-x-3">
               <span className="flex items-center">

@@ -5,13 +5,13 @@ Architectural Separation:
 1. Chat Mode (Interactive Natural Language):
    - Uses CHAT_SYSTEM_PROMPT with access to 4 essential tools.
    - Executes dynamic tool calls (budgeted to 1-2 calls max) to fetch live data.
-2. Explain Mode (Deterministic Deep-Dive & Justification):
+2. Explain Mode (Deterministic Deep-Dive & Streaming Justification):
    - Uses EXPLAIN_SYSTEM_PROMPT.
    - Pre-injects complete deterministic metrics, evidence, and unit economics into prompt.
-   - Executes in 1 single fast LLM turn (0 tool overhead, zero extra network trips).
+   - Streams tokens directly to client in real-time for zero perceived latency.
 """
 import json
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Generator
 from sqlalchemy.orm import Session
 from app.config import LLM_API_KEY, LLM_MODEL
 from app.ai.tools import TOOL_SCHEMAS, call_tool
@@ -134,9 +134,6 @@ def chat(db: Session, message: str, history: list = None, engine: Optional[Analy
                 continue
 
             answer = (msg.content or "").strip()
-            if not answer and getattr(msg, "reasoning_content", None):
-                answer = msg.reasoning_content.strip()
-
             return {"answer": answer, "mode": "llm", "tool_calls": tool_call_log}
 
         final_resp = client.chat.completions.create(
@@ -145,8 +142,6 @@ def chat(db: Session, message: str, history: list = None, engine: Optional[Analy
         )
         final_msg = final_resp.choices[0].message
         final_answer = (final_msg.content or "").strip()
-        if not final_answer and getattr(final_msg, "reasoning_content", None):
-            final_answer = final_msg.reasoning_content.strip()
 
         return {
             "answer": final_answer,
@@ -160,14 +155,8 @@ def chat(db: Session, message: str, history: list = None, engine: Optional[Analy
         return fb
 
 
-def explain(db: Session, subject_type: str, subject_id: str = None, engine: Optional[AnalyticsEngine] = None) -> dict:
-    """
-    Dedicated explanation engine: Pre-loads deterministic metrics into prompt
-    and generates instant 1-turn reasoning without extra tool call roundtrips.
-    """
-    eng = engine or AnalyticsEngine(db, days=30)
-    prompt_context = ""
-
+def _get_explain_prompt(db: Session, subject_type: str, subject_id: Optional[str], eng: AnalyticsEngine) -> str:
+    """Builds the comprehensive deterministic prompt context for the explain engine."""
     # 1. Opportunity Explain
     if subject_type == "opportunity" and subject_id:
         try:
@@ -183,7 +172,7 @@ def explain(db: Session, subject_type: str, subject_id: str = None, engine: Opti
                 ev_list = [str(o.evidence)]
             ev_str = "\n- ".join(ev_list) if ev_list else "None"
 
-            prompt_context = (
+            return (
                 f"Explain and justify this prioritized business opportunity:\n\n"
                 f"**Opportunity Title:** {o.title}\n"
                 f"**Category/Type:** {o.opportunity_type}\n"
@@ -195,11 +184,11 @@ def explain(db: Session, subject_type: str, subject_id: str = None, engine: Opti
             )
 
     # 2. SKU / Product Explain
-    elif subject_type == "kpi" and str(subject_id).startswith("product_"):
+    if subject_type == "kpi" and str(subject_id).startswith("product_"):
         pid = int(str(subject_id).replace("product_", ""))
         p_detail = eng.product_detail(product_id=pid)
         if p_detail:
-            prompt_context = (
+            return (
                 f"Explain SKU performance and inventory health for this product:\n\n"
                 f"**Product:** {p_detail['name']} (SKU: {p_detail['sku']}, Category: {p_detail['category']})\n"
                 f"**Price:** ₹{p_detail['price']:,.2f} | **Unit Cost:** ₹{p_detail['cost']:,.2f} | **Margin:** {p_detail['margin_pct']}%\n"
@@ -212,12 +201,12 @@ def explain(db: Session, subject_type: str, subject_id: str = None, engine: Opti
             )
 
     # 3. Marketplace Explain
-    elif subject_type == "kpi" and str(subject_id).startswith("marketplace_"):
+    if subject_type == "kpi" and str(subject_id).startswith("marketplace_"):
         mkt_name = str(subject_id).replace("marketplace_", "").capitalize()
         mkt_detail = eng.marketplace_detail(marketplace_name=mkt_name)
         if mkt_detail:
             m = mkt_detail.get("marketplace", {})
-            prompt_context = (
+            return (
                 f"Diagnose channel performance for **{mkt_name}**:\n\n"
                 f"**Revenue:** ₹{m.get('revenue', 0):,.2f} ({m.get('revenue_growth_pct', 0):+.1f}% period-over-period)\n"
                 f"**Revenue Share:** {m.get('revenue_contribution_pct', 0)}% of total catalog\n"
@@ -228,29 +217,84 @@ def explain(db: Session, subject_type: str, subject_id: str = None, engine: Opti
             )
 
     # 4. General KPI Explain
-    elif subject_type == "kpi":
-        kpi_name = subject_id or "revenue"
-        summary = eng.dashboard_summary()
-        kpis = summary.get("kpis", {})
-        kpi_obj = kpis.get(kpi_name, {})
-        mkts = eng.marketplace_metrics()
+    kpi_name = subject_id or "revenue"
+    summary = eng.dashboard_summary()
+    kpis = summary.get("kpis", {})
+    kpi_obj = kpis.get(kpi_name, {})
+    mkts = eng.marketplace_metrics()
 
-        mkt_summary_str = "\n".join([
-            f"- {m['marketplace']}: ₹{m['revenue']:,.0f} ({m['revenue_growth_pct']:+.1f}% growth, {m['return_rate']}% returns)"
-            for m in mkts
-        ])
+    mkt_summary_str = "\n".join([
+        f"- {m['marketplace']}: ₹{m['revenue']:,.0f} ({m['revenue_growth_pct']:+.1f}% growth, {m['return_rate']}% returns)"
+        for m in mkts
+    ])
 
-        prompt_context = (
-            f"Explain what changed for the **{kpi_name.upper()}** KPI over the last {eng.days} days:\n\n"
-            f"**Current Value:** {kpi_obj.get('value', 0)}\n"
-            f"**Previous Period Value:** {kpi_obj.get('previous', 0)}\n"
-            f"**Period-over-Period Change:** {kpi_obj.get('change_pct', 0):+.2f}%\n\n"
-            f"**Channel Performance Context:**\n{mkt_summary_str}\n\n"
-            f"Provide a root-cause explanation: what changed, main channel/product contributors, and recommended operational priorities."
+    return (
+        f"Explain what changed for the **{kpi_name.upper()}** KPI over the last {eng.days} days:\n\n"
+        f"**Current Value:** {kpi_obj.get('value', 0)}\n"
+        f"**Previous Period Value:** {kpi_obj.get('previous', 0)}\n"
+        f"**Period-over-Period Change:** {kpi_obj.get('change_pct', 0):+.2f}%\n\n"
+        f"**Channel Performance Context:**\n{mkt_summary_str}\n\n"
+        f"Provide a root-cause explanation: what changed, main channel/product contributors, and recommended operational priorities."
+    )
+
+
+def explain_stream(
+    db: Session,
+    subject_type: str,
+    subject_id: Optional[str] = None,
+    engine: Optional[AnalyticsEngine] = None,
+) -> Generator[str, None, None]:
+    """
+    Streams explanation tokens in real-time directly from LLM API.
+    """
+    eng = engine or AnalyticsEngine(db, days=30)
+    prompt_context = _get_explain_prompt(db, subject_type, subject_id, eng)
+
+    if not LLM_API_KEY:
+        fb = _deterministic_fallback(db, prompt_context, engine=eng)
+        yield fb.get("answer", "")
+        return
+
+    try:
+        from openai import OpenAI
+        client = OpenAI(api_key=LLM_API_KEY, base_url='https://api.deepseek.com', timeout=30.0)
+
+        messages = [
+            {"role": "system", "content": EXPLAIN_SYSTEM_PROMPT},
+            {"role": "user", "content": prompt_context},
+        ]
+
+        response = client.chat.completions.create(
+            model=LLM_MODEL,
+            messages=messages,
+            temperature=0.3,
+            stream=True,
         )
 
-    if not prompt_context:
-        return chat(db, "What changed this week and what should I prioritize?", engine=eng)
+        has_output = False
+        for chunk in response:
+            if not chunk.choices:
+                continue
+            delta = chunk.choices[0].delta
+            # Only stream final output content (exclude internal model reasoning/thinking tokens)
+            token = getattr(delta, "content", None) or ""
+            if token:
+                has_output = True
+                yield token
+
+        if not has_output:
+            fb = _deterministic_fallback(db, prompt_context, engine=eng)
+            yield fb.get("answer", "")
+
+    except Exception:
+        fb = _deterministic_fallback(db, prompt_context, engine=eng)
+        yield fb.get("answer", "")
+
+
+def explain(db: Session, subject_type: str, subject_id: str = None, engine: Optional[AnalyticsEngine] = None) -> dict:
+    """Non-streaming fallback helper."""
+    eng = engine or AnalyticsEngine(db, days=30)
+    prompt_context = _get_explain_prompt(db, subject_type, subject_id, eng)
 
     if not LLM_API_KEY:
         return _deterministic_fallback(db, prompt_context, engine=eng)
@@ -258,8 +302,6 @@ def explain(db: Session, subject_type: str, subject_id: str = None, engine: Opti
     try:
         from openai import OpenAI
         client = OpenAI(api_key=LLM_API_KEY, base_url='https://api.deepseek.com', timeout=20.0)
-
-        print(prompt_context)
 
         messages = [
             {"role": "system", "content": EXPLAIN_SYSTEM_PROMPT},
@@ -270,15 +312,10 @@ def explain(db: Session, subject_type: str, subject_id: str = None, engine: Opti
             model=LLM_MODEL,
             messages=messages,
             temperature=0.3,
-            top_p=0.7,
-            frequency_penalty=0,
-            presence_penalty=0,
         )
 
         msg = resp.choices[0].message
         answer = (msg.content or "").strip()
-        if not answer and getattr(msg, "reasoning_content", None):
-            answer = msg.reasoning_content.strip()
 
         if not answer:
             return _deterministic_fallback(db, prompt_context, engine=eng)
