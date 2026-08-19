@@ -138,6 +138,11 @@ def chat_stream(
                 messages=messages,
                 tools=TOOL_SCHEMAS,
                 tool_choice="auto",
+                extra_body={
+                    "thinking": {
+                        "type": "disabled"
+                    }
+                }
             )
             choice = resp.choices[0]
             msg = choice.message
@@ -172,6 +177,11 @@ def chat_stream(
             messages=messages,
             temperature=0.3,
             stream=True,
+            extra_body={
+                "thinking": {
+                    "type": "disabled"
+                }
+            }
         )
 
         has_output = False
@@ -218,6 +228,7 @@ def chat(db: Session, message: str, history: list = None, engine: Optional[Analy
                 messages=messages,
                 tools=TOOL_SCHEMAS,
                 tool_choice="auto",
+                extra_body={"thinking": {"type": "disabled"}},
             )
             choice = resp.choices[0]
             msg = choice.message
@@ -245,6 +256,11 @@ def chat(db: Session, message: str, history: list = None, engine: Optional[Analy
         final_resp = client.chat.completions.create(
             model=LLM_MODEL,
             messages=messages,
+            extra_body={
+                "thinking": {
+                    "type": "disabled"
+                }
+            }
         )
         final_msg = final_resp.choices[0].message
         final_answer = (final_msg.content or "").strip()
@@ -376,6 +392,11 @@ def explain_stream(
             messages=messages,
             temperature=0.3,
             stream=True,
+            extra_body={
+                "thinking": {
+                    "type": "disabled"
+                }
+            }
         )
 
         has_output = False

@@ -12,6 +12,13 @@ router = APIRouter(prefix="/api/copilot", tags=["copilot"])
 
 MAX_MESSAGE_LEN = 2000
 
+STREAM_HEADERS = {
+    "Cache-Control": "no-cache",
+    "Connection": "keep-alive",
+    "Content-Type": "text/event-stream",
+    "X-Accel-Buffering": "no",
+}
+
 
 class ChatMessage(BaseModel):
     role: str
@@ -42,7 +49,8 @@ def chat(
     history = [h.dict() for h in req.history] if req.history else []
     return StreamingResponse(
         copilot_service.chat_stream(db, req.message, history, engine=engine),
-        media_type="text/plain",
+        media_type="text/event-stream",
+        headers=STREAM_HEADERS,
     )
 
 
@@ -57,5 +65,6 @@ def explain(
     """
     return StreamingResponse(
         copilot_service.explain_stream(db, req.subject_type, req.subject_id, engine=engine),
-        media_type="text/plain",
+        media_type="text/event-stream",
+        headers=STREAM_HEADERS,
     )

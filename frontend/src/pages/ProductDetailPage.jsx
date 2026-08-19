@@ -9,6 +9,7 @@ import { formatCurrency, formatNumber } from '../utils/formatters';
 import {
   ArrowLeft,
   Sparkles,
+  Wand2,
   HelpCircle,
 } from 'lucide-react';
 import {
@@ -98,9 +99,9 @@ export default function ProductDetailPage({ productId: propProductId, onBack: pr
               `Deep-dive analysis on velocity, inventory depletion, and conversion performance`
             )
           }
-          className="flex items-center space-x-1.5 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold text-xs shadow-md shadow-amber-500/20 transition"
+          className="flex items-center space-x-1.5 px-3.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700 font-bold text-xs shadow-sm transition"
         >
-          <Sparkles className="w-3.5 h-3.5" />
+          <Wand2 className="w-3.5 h-3.5" />
           <span>Explain SKU with AI</span>
         </button>
       </div>
@@ -116,13 +117,12 @@ export default function ProductDetailPage({ productId: propProductId, onBack: pr
               <span className="text-xs text-slate-400 font-medium">{product.category}</span>
               {product.days_of_stock !== null && (
                 <span
-                  className={`text-xs font-bold px-2 py-0.5 rounded-full border ${
-                    product.days_of_stock < 3
-                      ? 'bg-rose-500/15 text-rose-400 border-rose-500/30'
-                      : product.days_of_stock < 7
+                  className={`text-xs font-bold px-2 py-0.5 rounded-full border ${product.days_of_stock < 3
+                    ? 'bg-rose-500/15 text-rose-400 border-rose-500/30'
+                    : product.days_of_stock < 7
                       ? 'bg-amber-500/15 text-amber-400 border-amber-500/30'
                       : 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
-                  }`}
+                    }`}
                 >
                   {product.days_of_stock < 7 ? '⚠️ Stockout Risk' : 'Healthy Inventory'}
                 </span>
@@ -206,11 +206,10 @@ export default function ProductDetailPage({ productId: propProductId, onBack: pr
         <div className="glass-card rounded-xl p-3.5 text-center">
           <span className="text-[10px] text-slate-400 uppercase font-semibold block">Days Remaining</span>
           <span
-            className={`text-base font-extrabold mt-1 block font-mono ${
-              product.days_of_stock !== null && product.days_of_stock < 7
-                ? 'text-rose-400'
-                : 'text-emerald-400'
-            }`}
+            className={`text-base font-extrabold mt-1 block font-mono ${product.days_of_stock !== null && product.days_of_stock < 7
+              ? 'text-rose-400'
+              : 'text-emerald-400'
+              }`}
           >
             {product.days_of_stock !== null ? `${product.days_of_stock}d` : 'N/A'}
           </span>
@@ -340,8 +339,8 @@ export default function ProductDetailPage({ productId: propProductId, onBack: pr
             <p className="text-slate-300 leading-relaxed">
               {product.days_of_stock !== null && product.days_of_stock < 7
                 ? `Stock will be exhausted in ~${product.days_of_stock} days, creating ${formatCurrency(
-                    product.revenue_at_risk
-                  )} in near-term revenue exposure.`
+                  product.revenue_at_risk
+                )} in near-term revenue exposure.`
                 : `Product exhibits stable operational metrics with ${product.days_of_stock || 'healthy'} days coverage.`}
             </p>
           </div>

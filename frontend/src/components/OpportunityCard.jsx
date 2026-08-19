@@ -3,10 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { getSeverityBadge } from '../utils/formatters';
 import { useFilters } from '../context/FilterContext';
 import {
-  Sparkles,
+  Wand2,
   ArrowRight,
   AlertCircle,
-  Shield,
 } from 'lucide-react';
 
 export default function OpportunityCard({ opportunity }) {
@@ -24,7 +23,6 @@ export default function OpportunityCard({ opportunity }) {
     evidence = [],
     impact,
     recommendation,
-    confidence,
   } = opportunity;
 
   const badge = getSeverityBadge(severity);
@@ -49,7 +47,7 @@ export default function OpportunityCard({ opportunity }) {
   };
 
   return (
-    <div className="glass-card rounded-2xl p-5 relative overflow-hidden transition-all duration-300 hover:border-amber-500/40 hover:shadow-xl hover:shadow-amber-500/5 group flex flex-col justify-between">
+    <div className="glass-card rounded-2xl p-5 relative overflow-hidden transition-all duration-300 hover:border-slate-700 hover:shadow-xl hover:shadow-slate-900/40 group flex flex-col justify-between">
       {/* Top Badge & Score Row */}
       <div>
         <div className="flex items-center justify-between mb-3">
@@ -64,7 +62,7 @@ export default function OpportunityCard({ opportunity }) {
             {entity && (
               <button
                 onClick={handleEntityClick}
-                className="text-xs text-slate-300 hover:text-amber-300 font-medium px-2 py-0.5 rounded-md bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700/60 transition flex items-center space-x-1"
+                className="text-xs text-slate-300 hover:text-sky-300 font-medium px-2 py-0.5 rounded-md bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700/60 transition flex items-center space-x-1"
                 title="Click to view details"
               >
                 <span>{entity}</span>
@@ -75,14 +73,14 @@ export default function OpportunityCard({ opportunity }) {
 
           <div className="flex items-center space-x-1.5">
             <span className="text-[11px] text-slate-400 font-medium">Score:</span>
-            <span className="text-xs font-mono font-extrabold px-2 py-0.5 rounded-lg bg-amber-500/15 text-amber-300 border border-amber-500/30">
+            <span className="text-xs font-mono font-extrabold px-2 py-0.5 rounded-lg bg-slate-800 text-slate-200 border border-slate-700">
               {score}
             </span>
           </div>
         </div>
 
         {/* Opportunity Title */}
-        <h4 className="text-sm font-bold text-slate-100 tracking-tight mb-2 group-hover:text-amber-200 transition-colors">
+        <h4 className="text-sm font-bold text-slate-100 tracking-tight mb-2 group-hover:text-sky-200 transition-colors">
           {title}
         </h4>
 
@@ -90,12 +88,12 @@ export default function OpportunityCard({ opportunity }) {
         {evidence && evidence.length > 0 && (
           <div className="my-3 space-y-1 bg-slate-950/50 p-3 rounded-xl border border-slate-800/60">
             <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1 flex items-center space-x-1">
-              <AlertCircle className="w-3 h-3 text-amber-400" />
+              <AlertCircle className="w-3 h-3 text-slate-400" />
               <span>Evidence</span>
             </div>
             {evidence.slice(0, 3).map((ev, idx) => (
               <div key={idx} className="text-xs text-slate-300 flex items-start space-x-1.5">
-                <span className="text-amber-400/80 font-bold">•</span>
+                <span className="text-slate-500 font-bold">•</span>
                 <span className="leading-tight">{ev}</span>
               </div>
             ))}
@@ -112,7 +110,7 @@ export default function OpportunityCard({ opportunity }) {
           )}
 
           <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 text-slate-300">
-            <span className="font-bold text-[11px] uppercase tracking-wider text-amber-400 block mb-0.5">
+            <span className="font-bold text-[11px] uppercase tracking-wider text-slate-400 block mb-0.5">
               Recommended Action:
             </span>
             <p className="text-xs text-slate-300 leading-snug">{recommendation}</p>
@@ -125,10 +123,10 @@ export default function OpportunityCard({ opportunity }) {
         <div className="flex items-center space-x-2">
           <button
             onClick={handleExplain}
-            title="Generate an AI root-cause explanation and operational justification for this opportunity"
-            className="flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 text-xs font-semibold transition hover:scale-105"
+            title="Generate an analytical root-cause explanation and operational justification"
+            className="flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-sky-500/10 hover:bg-sky-500/20 text-sky-300 border border-sky-500/20 text-xs font-semibold transition hover:scale-105"
           >
-            <Sparkles className="w-3 h-3 text-amber-400" />
+            <Wand2 className="w-3 h-3 text-sky-400" />
             <span>Explain</span>
           </button>
         </div>

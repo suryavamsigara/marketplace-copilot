@@ -11,7 +11,7 @@ import {
   Store,
   TrendingUp,
   TrendingDown,
-  Sparkles,
+  Wand2,
   AlertTriangle,
   BarChart3,
 } from 'lucide-react';
@@ -112,17 +112,15 @@ export default function MarketplacesPage() {
                       <tr
                         key={m.marketplace}
                         onClick={() => setActiveMktName(m.marketplace)}
-                        className={`transition cursor-pointer ${
-                          isSelected
-                            ? 'bg-amber-500/10 hover:bg-amber-500/15'
-                            : 'hover:bg-slate-900/80'
-                        }`}
+                        className={`transition cursor-pointer ${isSelected
+                          ? 'bg-amber-500/10 hover:bg-amber-500/15'
+                          : 'hover:bg-slate-900/80'
+                          }`}
                       >
                         <td className="px-5 py-4 font-bold text-slate-100 flex items-center space-x-2">
                           <span
-                            className={`w-2 h-2 rounded-full ${
-                              isSelected ? 'bg-amber-400' : 'bg-slate-600'
-                            }`}
+                            className={`w-2 h-2 rounded-full ${isSelected ? 'bg-amber-400' : 'bg-slate-600'
+                              }`}
                           />
                           <span className="text-sm">{m.marketplace}</span>
                         </td>
@@ -131,9 +129,8 @@ export default function MarketplacesPage() {
                         </td>
                         <td className="px-4 py-4">
                           <span
-                            className={`inline-flex items-center font-bold ${
-                              isGrowthPositive ? 'text-emerald-400' : 'text-rose-400'
-                            }`}
+                            className={`inline-flex items-center font-bold ${isGrowthPositive ? 'text-emerald-400' : 'text-rose-400'
+                              }`}
                           >
                             {isGrowthPositive ? (
                               <TrendingUp className="w-3 h-3 mr-0.5 inline" />
@@ -169,11 +166,10 @@ export default function MarketplacesPage() {
                               e.stopPropagation();
                               setActiveMktName(m.marketplace);
                             }}
-                            className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition ${
-                              isSelected
-                                ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-sm'
-                                : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
-                            }`}
+                            className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition ${isSelected
+                              ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-sm'
+                              : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+                              }`}
                           >
                             {isSelected ? 'Selected' : 'Drilldown'}
                           </button>
@@ -216,9 +212,8 @@ export default function MarketplacesPage() {
                   `Evaluating drivers for ${activeMktName} performance, traffic shifts, and SKU risks`
                 )
               }
-              className="flex items-center space-x-1.5 px-3.5 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold text-xs shadow-md shadow-amber-500/20 transition"
-            >
-              <Sparkles className="w-3.5 h-3.5" />
+              className="flex items-center space-x-1.5 px-3.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700 font-bold text-xs shadow-sm transition">
+              <Wand2 className="w-3.5 h-3.5" />
               <span>Explain {activeMktName} with AI</span>
             </button>
           </div>
@@ -289,11 +284,10 @@ export default function MarketplacesPage() {
                 <div className="flex justify-between items-center p-2.5 rounded-xl bg-slate-900/90 border border-slate-800">
                   <span className="text-xs text-slate-400">Growth Rate</span>
                   <span
-                    className={`text-sm font-extrabold ${
-                      (currentDetail?.revenue_growth_pct || 0) >= 0
-                        ? 'text-emerald-400'
-                        : 'text-rose-400'
-                    }`}
+                    className={`text-sm font-extrabold ${(currentDetail?.revenue_growth_pct || 0) >= 0
+                      ? 'text-emerald-400'
+                      : 'text-rose-400'
+                      }`}
                   >
                     {formatPercent(currentDetail?.revenue_growth_pct)}
                   </span>
