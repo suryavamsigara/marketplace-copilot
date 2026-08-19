@@ -112,7 +112,6 @@ def chat(db: Session, message: str, history: list = None, engine: Optional[Analy
                 messages=messages,
                 tools=TOOL_SCHEMAS,
                 tool_choice="auto",
-                max_tokens=2000,
             )
             choice = resp.choices[0]
             msg = choice.message
@@ -260,6 +259,8 @@ def explain(db: Session, subject_type: str, subject_id: str = None, engine: Opti
         from openai import OpenAI
         client = OpenAI(api_key=LLM_API_KEY, base_url='https://api.deepseek.com', timeout=20.0)
 
+        print(prompt_context)
+
         messages = [
             {"role": "system", "content": EXPLAIN_SYSTEM_PROMPT},
             {"role": "user", "content": prompt_context},
@@ -268,6 +269,10 @@ def explain(db: Session, subject_type: str, subject_id: str = None, engine: Opti
         resp = client.chat.completions.create(
             model=LLM_MODEL,
             messages=messages,
+            temperature=0.3,
+            top_p=0.7,
+            frequency_penalty=0,
+            presence_penalty=0,
         )
 
         msg = resp.choices[0].message

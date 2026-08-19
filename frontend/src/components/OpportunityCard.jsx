@@ -122,13 +122,6 @@ export default function OpportunityCard({ opportunity }) {
 
       {/* Footer Details & Action Buttons */}
       <div className="pt-4 mt-4 border-t border-slate-800/60 flex items-center justify-between text-xs">
-        <div className="flex items-center space-x-1.5 text-[11px] text-slate-400">
-          <Shield className="w-3 h-3 text-slate-400" />
-          <span>
-            Confidence: <strong className="text-slate-300 font-semibold">{confidence}</strong>
-          </span>
-        </div>
-
         <div className="flex items-center space-x-2">
           <button
             onClick={handleExplain}

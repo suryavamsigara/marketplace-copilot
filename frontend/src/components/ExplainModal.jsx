@@ -12,7 +12,34 @@ import {
   ArrowRight,
   ShieldCheck,
   Cpu,
+  Activity,
+  Database,
+  TrendingDown,
+  BrainCircuit,
 } from 'lucide-react';
+
+const LOADING_STEPS = [
+  {
+    icon: Database,
+    title: 'Querying Time-Series Ledger...',
+    subtitle: 'Extracting 90-day multi-channel sales and demand velocity benchmarks',
+  },
+  {
+    icon: TrendingDown,
+    title: 'Analyzing Inventory & Depletion Curves...',
+    subtitle: 'Evaluating stock velocity, days-of-stock remaining, and reorder constraints',
+  },
+  {
+    icon: Activity,
+    title: 'Evaluating Pricing & Return Anomalies...',
+    subtitle: 'Benchmarking competitor pricing, category return spikes, and channel margins',
+  },
+  {
+    icon: BrainCircuit,
+    title: 'Synthesizing Causal Attribution & Impact...',
+    subtitle: 'Computing revenue exposure, root causes, and prioritizing operational steps',
+  },
+];
 
 export default function ExplainModal() {
   const navigate = useNavigate();
@@ -20,8 +47,21 @@ export default function ExplainModal() {
   const { isOpen, subjectType, subjectId, title, subtitle } = explainModal;
 
   const [loading, setLoading] = useState(false);
+  const [stepIndex, setStepIndex] = useState(0);
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
+
+  // Cycle through informative analysis steps while loading
+  useEffect(() => {
+    if (!isOpen || !loading) {
+      setStepIndex(0);
+      return;
+    }
+    const interval = setInterval(() => {
+      setStepIndex((prev) => (prev + 1) % LOADING_STEPS.length);
+    }, 3500);
+    return () => clearInterval(interval);
+  }, [isOpen, loading]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -58,6 +98,9 @@ export default function ExplainModal() {
   }, [isOpen, subjectType, subjectId]);
 
   if (!isOpen) return null;
+
+  const currentStep = LOADING_STEPS[stepIndex];
+  const StepIcon = currentStep?.icon || Sparkles;
 
   const handleOpenInCopilot = () => {
     const promptText = `Can you provide a deep-dive explanation for: ${title}?`;
@@ -97,13 +140,34 @@ export default function ExplainModal() {
         {/* Content Body */}
         <div className="p-6 overflow-y-auto flex-1 space-y-4">
           {loading && (
-            <div className="py-12 flex flex-col items-center justify-center space-y-4">
-              <div className="w-10 h-10 border-2 border-amber-500/20 border-t-amber-400 rounded-full animate-spin" />
-              <div className="text-center">
-                <p className="text-sm font-semibold text-slate-200">Synthesizing Business Evidence...</p>
-                <p className="text-xs text-slate-400 mt-1">
-                  Querying deterministic Python analytics tools and computing root-causes
+            <div className="py-12 flex flex-col items-center justify-center space-y-5 animate-in fade-in duration-300">
+              {/* Spinning Ring with Active Stage Icon */}
+              <div className="relative w-14 h-14 flex items-center justify-center">
+                <div className="absolute inset-0 border-2 border-amber-500/20 border-t-amber-400 rounded-full animate-spin" />
+                <StepIcon className="w-6 h-6 text-amber-400 animate-pulse" />
+              </div>
+
+              {/* Dynamic Cycling Step Messages */}
+              <div className="text-center max-w-md px-4 transition-all duration-300">
+                <p className="text-sm font-semibold text-slate-100 transition-all duration-300">
+                  {currentStep.title}
                 </p>
+                <p className="text-xs text-slate-400 mt-1 leading-relaxed transition-all duration-300">
+                  {currentStep.subtitle}
+                </p>
+              </div>
+
+              {/* Step Progress Dots */}
+              <div className="flex items-center space-x-1.5 pt-2">
+                {LOADING_STEPS.map((_, idx) => (
+                  <div
+                    key={idx}
+                    className={`h-1.5 rounded-full transition-all duration-300 ${idx === stepIndex
+                        ? 'w-6 bg-amber-400 shadow-sm shadow-amber-400/40'
+                        : 'w-1.5 bg-slate-700'
+                      }`}
+                  />
+                ))}
               </div>
             </div>
           )}
