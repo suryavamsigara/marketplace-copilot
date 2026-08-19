@@ -174,15 +174,13 @@ The application uses 6 tables with foreign keys and composite indexes:
 ### 1. Backend Setup
 ```bash
 cd backend
-uv venv --python python3.12 .venv
-source .venv/bin/activate
-uv pip install -r requirements.txt
+uv sync
 
 # Seed synthetic database (creates ~130 products, 4 channels, 90 days of history, opportunities)
-python scripts/seed_database.py
+uv run scripts/seed_database.py
 
 # Start FastAPI backend
-uvicorn app.main:app --reload --port 8000
+uv run uvicorn app.main:app --reload --port 8000
 ```
 
 ### 2. Frontend Setup
@@ -205,8 +203,8 @@ Open **`http://localhost:5173`** in your browser.
 
 ### Backend (Render / AWS)
 1. Deploy `backend` as a Web Service on Render or AWS App Runner.
-2. Build Command: `pip install -r requirements.txt`.
-3. Start Command: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`.
+2. Build Command: `uv sync`.
+3. Start Command: `uv run uvicorn app.main:app --host 0.0.0.0 --port $PORT`.
 4. Set Environment Variables:
    * `DATABASE_URL` (Supabase connection string)
    * `LLM_API_KEY` (OpenAI API key)
