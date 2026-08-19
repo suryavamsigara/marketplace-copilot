@@ -2,9 +2,9 @@
 AI Copilot orchestration: React frontend -> FastAPI -> this service -> LLM API.
 
 Architectural Separation:
-1. Chat Mode (Interactive Natural Language):
+1. Chat Mode (Interactive Natural Language with Live Token Streaming):
    - Uses CHAT_SYSTEM_PROMPT with access to 4 essential tools.
-   - Executes dynamic tool calls (budgeted to 1-2 calls max) to fetch live data.
+   - Executes dynamic tool calls to fetch live telemetry, then streams the grounded answer.
 2. Explain Mode (Deterministic Deep-Dive & Streaming Justification):
    - Uses EXPLAIN_SYSTEM_PROMPT.
    - Pre-injects complete deterministic metrics, evidence, and unit economics into prompt.
@@ -90,8 +90,87 @@ def _deterministic_fallback(db: Session, question: str, engine: Optional[Analyti
     }
 
 
+def chat_stream(
+    db: Session,
+    message: str,
+    history: list = None,
+    engine: Optional[AnalyticsEngine] = None,
+) -> Generator[str, None, None]:
+    """
+    Streams conversational assistant responses token-by-token with tool-calling capabilities.
+    """
+    eng = engine or AnalyticsEngine(db, days=30)
+    if not LLM_API_KEY:
+        fb = _deterministic_fallback(db, message, engine=eng)
+        yield fb.get("answer", "")
+        return
+
+    try:
+        from openai import OpenAI
+        client = OpenAI(api_key=LLM_API_KEY, base_url='https://api.deepseek.com', timeout=30.0)
+
+        messages = [{"role": "system", "content": CHAT_SYSTEM_PROMPT}]
+        for h in (history or [])[-6:]:
+            messages.append({"role": h["role"], "content": h["content"]})
+        messages.append({"role": "user", "content": message})
+
+        # Step 1: Tool execution rounds (non-streaming to collect data)
+        for _ in range(2):
+            resp = client.chat.completions.create(
+                model=LLM_MODEL,
+                messages=messages,
+                tools=TOOL_SCHEMAS,
+                tool_choice="auto",
+            )
+            choice = resp.choices[0]
+            msg = choice.message
+
+            if msg.tool_calls:
+                messages.append({
+                    "role": "assistant",
+                    "content": msg.content or "",
+                    "tool_calls": [tc.model_dump() for tc in msg.tool_calls],
+                })
+                for tc in msg.tool_calls:
+                    args = json.loads(tc.function.arguments or "{}")
+                    result = call_tool(tc.function.name, args, db=db, engine=eng)
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tc.id,
+                        "content": json.dumps(result, default=str)[:5000],
+                    })
+                continue
+            break
+
+        # Step 2: Stream final grounded response
+        response = client.chat.completions.create(
+            model=LLM_MODEL,
+            messages=messages,
+            temperature=0.3,
+            stream=True,
+        )
+
+        has_output = False
+        for chunk in response:
+            if not chunk.choices:
+                continue
+            delta = chunk.choices[0].delta
+            token = getattr(delta, "content", None) or ""
+            if token:
+                has_output = True
+                yield token
+
+        if not has_output:
+            fb = _deterministic_fallback(db, message, engine=eng)
+            yield fb.get("answer", "")
+
+    except Exception:
+        fb = _deterministic_fallback(db, message, engine=eng)
+        yield fb.get("answer", "")
+
+
 def chat(db: Session, message: str, history: list = None, engine: Optional[AnalyticsEngine] = None) -> dict:
-    """Handles open-ended conversational questions with tool-calling capabilities."""
+    """Non-streaming fallback helper."""
     eng = engine or AnalyticsEngine(db, days=30)
     if not LLM_API_KEY:
         return _deterministic_fallback(db, message, engine=eng)
@@ -106,7 +185,7 @@ def chat(db: Session, message: str, history: list = None, engine: Optional[Analy
         messages.append({"role": "user", "content": message})
 
         tool_call_log = []
-        for _ in range(2):  # Max 2 tool-calling iterations
+        for _ in range(2):
             resp = client.chat.completions.create(
                 model=LLM_MODEL,
                 messages=messages,

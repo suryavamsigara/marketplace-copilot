@@ -65,8 +65,23 @@ export default function CopilotPage() {
     const text = (userPrompt || input).trim();
     if (!text || loading) return;
 
-    const newMessages = [...messages, { role: 'user', content: text }];
-    setMessages(newMessages);
+    const userMessage = { role: 'user', content: text };
+    const historyPayload = messages
+      .filter((m) => m.role === 'user' || m.role === 'assistant')
+      .map((m) => ({ role: m.role, content: m.content }));
+
+    // Append user message + placeholder assistant message for streaming
+    setMessages((prev) => [
+      ...prev,
+      userMessage,
+      {
+        role: 'assistant',
+        content: '',
+        mode: 'llm',
+        tool_calls: [],
+      },
+    ]);
+
     setInput('');
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
@@ -74,35 +89,39 @@ export default function CopilotPage() {
     setLoading(true);
 
     try {
-      const history = newMessages
-        .filter((m) => m.role === 'user' || m.role === 'assistant')
-        .map((m) => ({ role: m.role, content: m.content }));
-
-      const res = await api.sendCopilotChat({
-        message: text,
-        history,
-      });
-
-      setMessages((prev) => [
-        ...prev,
+      await api.streamChat(
         {
-          role: 'assistant',
-          content: res.answer,
-          mode: res.mode,
-          tool_calls: res.tool_calls || [],
-          error: res.error,
+          message: text,
+          history: historyPayload,
         },
-      ]);
+        (accumulated) => {
+          setMessages((prev) => {
+            const updated = [...prev];
+            const lastIdx = updated.length - 1;
+            if (lastIdx >= 0 && updated[lastIdx].role === 'assistant') {
+              updated[lastIdx] = {
+                ...updated[lastIdx],
+                content: accumulated,
+              };
+            }
+            return updated;
+          });
+        }
+      );
     } catch (err) {
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: 'assistant',
-          content: `Unable to reach the reasoning service. Please ensure your backend is running.`,
-          mode: 'error',
-          error: err.message,
-        },
-      ]);
+      setMessages((prev) => {
+        const updated = [...prev];
+        const lastIdx = updated.length - 1;
+        if (lastIdx >= 0 && updated[lastIdx].role === 'assistant') {
+          updated[lastIdx] = {
+            role: 'assistant',
+            content: `Unable to reach the reasoning service: ${err.message}`,
+            mode: 'error',
+            error: err.message,
+          };
+        }
+        return updated;
+      });
     } finally {
       setLoading(false);
     }
@@ -203,65 +222,59 @@ export default function CopilotPage() {
 
                     {/* Markdown Rendered Content */}
                     <div className="text-[15px] text-slate-200 leading-relaxed space-y-4">
-                      <ReactMarkdown
-                        remarkPlugins={[remarkGfm]}
-                        components={{
-                          h2: ({ children }) => <h2 className="text-lg font-semibold text-slate-100 mt-6 mb-3">{children}</h2>,
-                          h3: ({ children }) => <h3 className="text-base font-semibold text-slate-200 mt-5 mb-2">{children}</h3>,
-                          ul: ({ children }) => <ul className="list-disc pl-5 space-y-1.5 my-3 text-slate-300">{children}</ul>,
-                          ol: ({ children }) => <ol className="list-decimal pl-5 space-y-1.5 my-3 text-slate-300">{children}</ol>,
-                          li: ({ children }) => <li className="leading-relaxed">{children}</li>,
-                          p: ({ children }) => <p className="my-3 leading-relaxed">{children}</p>,
-                          strong: ({ children }) => <strong className="font-semibold text-slate-100">{children}</strong>,
-                          code: ({ inline, children }) => (
-                            <code className={`font-mono text-[13px] ${inline ? 'px-1.5 py-0.5 rounded-md bg-slate-800 text-slate-300' : 'block p-4 overflow-x-auto my-4 rounded-xl bg-slate-900 border border-slate-800 text-slate-300'}`}>
-                              {children}
-                            </code>
-                          ),
-                          table: ({ children }) => <div className="overflow-x-auto my-4 rounded-xl border border-slate-800"><table className="w-full text-left text-[14px] text-slate-300 divide-y divide-slate-800">{children}</table></div>,
-                          thead: ({ children }) => <thead className="bg-slate-900/50 text-slate-400 font-medium">{children}</thead>,
-                          tbody: ({ children }) => <tbody className="divide-y divide-slate-800/50">{children}</tbody>,
-                          th: ({ children }) => <th className="p-3 font-medium">{children}</th>,
-                          td: ({ children }) => <td className="p-3">{children}</td>,
-                          blockquote: ({ children }) => <blockquote className="border-l-2 border-slate-700 pl-4 my-4 text-slate-400 italic">{children}</blockquote>,
-                        }}
-                      >
-                        {m.content}
-                      </ReactMarkdown>
+                      {m.content ? (
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm]}
+                          components={{
+                            h2: ({ children }) => <h2 className="text-lg font-semibold text-slate-100 mt-6 mb-3">{children}</h2>,
+                            h3: ({ children }) => <h3 className="text-base font-semibold text-slate-200 mt-5 mb-2">{children}</h3>,
+                            ul: ({ children }) => <ul className="list-disc pl-5 space-y-1.5 my-3 text-slate-300">{children}</ul>,
+                            ol: ({ children }) => <ol className="list-decimal pl-5 space-y-1.5 my-3 text-slate-300">{children}</ol>,
+                            li: ({ children }) => <li className="leading-relaxed">{children}</li>,
+                            p: ({ children }) => <p className="my-3 leading-relaxed">{children}</p>,
+                            strong: ({ children }) => <strong className="font-semibold text-slate-100">{children}</strong>,
+                            code: ({ inline, children }) => (
+                              <code className={`font-mono text-[13px] ${inline ? 'px-1.5 py-0.5 rounded-md bg-slate-800 text-slate-300' : 'block p-4 overflow-x-auto my-4 rounded-xl bg-slate-900 border border-slate-800 text-slate-300'}`}>
+                                {children}
+                              </code>
+                            ),
+                            table: ({ children }) => <div className="overflow-x-auto my-4 rounded-xl border border-slate-800"><table className="w-full text-left text-[14px] text-slate-300 divide-y divide-slate-800">{children}</table></div>,
+                            thead: ({ children }) => <thead className="bg-slate-900/50 text-slate-400 font-medium">{children}</thead>,
+                            tbody: ({ children }) => <tbody className="divide-y divide-slate-800/50">{children}</tbody>,
+                            th: ({ children }) => <th className="p-3 font-medium">{children}</th>,
+                            td: ({ children }) => <td className="p-3">{children}</td>,
+                            blockquote: ({ children }) => <blockquote className="border-l-2 border-slate-700 pl-4 my-4 text-slate-400 italic">{children}</blockquote>,
+                          }}
+                        >
+                          {m.content}
+                        </ReactMarkdown>
+                      ) : (
+                        <div className="flex items-center space-x-1.5 py-2">
+                          <div className="w-2 h-2 rounded-full bg-slate-400 animate-bounce" />
+                          <div className="w-2 h-2 rounded-full bg-slate-400 animate-bounce" style={{ animationDelay: '0.2s' }} />
+                          <div className="w-2 h-2 rounded-full bg-slate-400 animate-bounce" style={{ animationDelay: '0.4s' }} />
+                        </div>
+                      )}
                     </div>
 
                     {/* Hover Actions */}
-                    <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center space-x-2 mt-3">
-                      <button
-                        onClick={() => handleCopy(m.content, idx)}
-                        className="flex items-center space-x-1.5 px-2 py-1 rounded-lg text-slate-500 hover:text-slate-300 hover:bg-slate-800 transition"
-                      >
-                        {copiedIndex === idx ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                        <span className="text-xs font-medium">{copiedIndex === idx ? 'Copied' : 'Copy'}</span>
-                      </button>
-                    </div>
+                    {m.content && (
+                      <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center space-x-2 mt-3">
+                        <button
+                          onClick={() => handleCopy(m.content, idx)}
+                          className="flex items-center space-x-1.5 px-2 py-1 rounded-lg text-slate-500 hover:text-slate-300 hover:bg-slate-800 transition"
+                        >
+                          {copiedIndex === idx ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                          <span className="text-xs font-medium">{copiedIndex === idx ? 'Copied' : 'Copy'}</span>
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
             </div>
           );
         })}
-
-        {/* Loading Indicator */}
-        {loading && (
-          <div className="flex items-start space-x-4 max-w-3xl w-full animate-in fade-in duration-200">
-            <div className="w-8 h-8 rounded-full bg-[#0b0f19] border border-slate-800 flex items-center justify-center flex-shrink-0 mt-0.5">
-              <Sparkles className="w-4 h-4 text-slate-400" />
-            </div>
-            <div className="flex-1 pt-2.5">
-              <div className="flex items-center space-x-1.5">
-                <div className="w-2 h-2 rounded-full bg-slate-500 animate-bounce" />
-                <div className="w-2 h-2 rounded-full bg-slate-500 animate-bounce" style={{ animationDelay: '0.2s' }} />
-                <div className="w-2 h-2 rounded-full bg-slate-500 animate-bounce" style={{ animationDelay: '0.4s' }} />
-              </div>
-            </div>
-          </div>
-        )}
 
         <div ref={messagesEndRef} className="h-4" />
       </div>

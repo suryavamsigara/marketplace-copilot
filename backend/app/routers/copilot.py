@@ -34,10 +34,16 @@ def chat(
     db: Session = Depends(get_db),
     engine: AnalyticsEngine = Depends(get_analytics_engine),
 ):
+    """
+    Streams conversational chat assistant responses token-by-token.
+    """
     if len(req.message.strip()) == 0:
         raise HTTPException(400, "Message cannot be empty")
     history = [h.dict() for h in req.history] if req.history else []
-    return copilot_service.chat(db, req.message, history, engine=engine)
+    return StreamingResponse(
+        copilot_service.chat_stream(db, req.message, history, engine=engine),
+        media_type="text/plain",
+    )
 
 
 @router.post("/explain")
