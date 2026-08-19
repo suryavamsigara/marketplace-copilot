@@ -5,10 +5,9 @@ Architectural Separation:
 1. Chat Mode (Interactive Natural Language with Live Tool Trace & Streaming):
    - Uses CHAT_SYSTEM_PROMPT with access to 4 essential tools.
    - Streams live tool execution activity events (SSE) before streaming the synthesized markdown response.
-2. Explain Mode (Deterministic Deep-Dive & Streaming Justification):
+2. Explain Mode (Deterministic Deep-Dive & Real Telemetry Streaming):
    - Uses EXPLAIN_SYSTEM_PROMPT.
-   - Pre-injects complete deterministic metrics, evidence, and unit economics into prompt.
-   - Streams tokens directly to client in real-time for zero perceived latency.
+   - Pre-injects verified deterministic metrics into prompt and streams tokens directly in real-time.
 """
 import json
 from typing import Optional, Dict, Any, List, Generator
@@ -153,7 +152,6 @@ def chat_stream(
                     args = json.loads(tc.function.arguments or "{}")
                     label = _get_tool_friendly_label(tc.function.name, args)
 
-                    # Emit live tool start event
                     yield f"data: {json.dumps({'type': 'tool_start', 'tool': tc.function.name, 'label': label, 'args': args})}\n\n"
 
                     result = call_tool(tc.function.name, args, db=db, engine=eng)
@@ -164,7 +162,6 @@ def chat_stream(
                         "content": json.dumps(result, default=str)[:5000],
                     })
 
-                    # Emit tool completed event
                     yield f"data: {json.dumps({'type': 'tool_done', 'tool': tc.function.name, 'label': label})}\n\n"
                 continue
             break
@@ -354,14 +351,15 @@ def explain_stream(
     engine: Optional[AnalyticsEngine] = None,
 ) -> Generator[str, None, None]:
     """
-    Streams explanation tokens in real-time directly from LLM API.
+    Streams explanation tokens directly in real-time.
     """
     eng = engine or AnalyticsEngine(db, days=30)
     prompt_context = _get_explain_prompt(db, subject_type, subject_id, eng)
 
     if not LLM_API_KEY:
         fb = _deterministic_fallback(db, prompt_context, engine=eng)
-        yield fb.get("answer", "")
+        yield f"data: {json.dumps({'type': 'token', 'content': fb.get('answer', '')})}\n\n"
+        yield f"data: {json.dumps({'type': 'done'})}\n\n"
         return
 
     try:
@@ -385,19 +383,21 @@ def explain_stream(
             if not chunk.choices:
                 continue
             delta = chunk.choices[0].delta
-            # Only stream final output content (exclude internal model reasoning/thinking tokens)
             token = getattr(delta, "content", None) or ""
             if token:
                 has_output = True
-                yield token
+                yield f"data: {json.dumps({'type': 'token', 'content': token})}\n\n"
 
         if not has_output:
             fb = _deterministic_fallback(db, prompt_context, engine=eng)
-            yield fb.get("answer", "")
+            yield f"data: {json.dumps({'type': 'token', 'content': fb.get('answer', '')})}\n\n"
+
+        yield f"data: {json.dumps({'type': 'done'})}\n\n"
 
     except Exception:
         fb = _deterministic_fallback(db, prompt_context, engine=eng)
-        yield fb.get("answer", "")
+        yield f"data: {json.dumps({'type': 'token', 'content': fb.get('answer', '')})}\n\n"
+        yield f"data: {json.dumps({'type': 'done'})}\n\n"
 
 
 def explain(db: Session, subject_type: str, subject_id: str = None, engine: Optional[AnalyticsEngine] = None) -> dict:

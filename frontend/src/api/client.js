@@ -194,7 +194,7 @@ export const api = {
 
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split('\n\n');
-      buffer = lines.pop(); // Keep incomplete chunk in buffer
+      buffer = lines.pop();
 
       for (const line of lines) {
         const trimmed = line.trim();
@@ -218,14 +218,12 @@ export const api = {
               if (onEvent) onEvent({ type: 'done', accumulated: accumulatedContent });
             }
           } catch (_) {
-            // Fallback for non-JSON string
             accumulatedContent += trimmed.slice(6);
             if (onEvent) {
               onEvent({ type: 'token', content: trimmed.slice(6), accumulated: accumulatedContent });
             }
           }
         } else {
-          // Plain text fallback
           accumulatedContent += trimmed;
           if (onEvent) {
             onEvent({ type: 'token', content: trimmed, accumulated: accumulatedContent });
@@ -244,7 +242,7 @@ export const api = {
     });
   },
 
-  streamExplain: async ({ subject_type, subject_id }, onChunk) => {
+  streamExplain: async ({ subject_type, subject_id }, onEvent) => {
     const url = `${API_BASE}/api/copilot/explain`;
     const res = await fetch(url, {
       method: 'POST',
@@ -263,18 +261,53 @@ export const api = {
 
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
-    let accumulated = '';
+    let buffer = '';
+    let accumulatedContent = '';
 
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
-      const chunk = decoder.decode(value, { stream: true });
-      accumulated += chunk;
-      if (onChunk) {
-        onChunk(accumulated, chunk);
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n\n');
+      buffer = lines.pop();
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+
+        if (trimmed.startsWith('data: ')) {
+          try {
+            const payload = JSON.parse(trimmed.slice(6));
+            if (payload.type === 'status') {
+              if (onEvent) onEvent(payload);
+            } else if (payload.type === 'token') {
+              accumulatedContent += payload.content;
+              if (onEvent) {
+                onEvent({
+                  type: 'token',
+                  content: payload.content,
+                  accumulated: accumulatedContent,
+                });
+              }
+            } else if (payload.type === 'done') {
+              if (onEvent) onEvent({ type: 'done', accumulated: accumulatedContent });
+            }
+          } catch (_) {
+            accumulatedContent += trimmed.slice(6);
+            if (onEvent) {
+              onEvent({ type: 'token', content: trimmed.slice(6), accumulated: accumulatedContent });
+            }
+          }
+        } else {
+          accumulatedContent += trimmed;
+          if (onEvent) {
+            onEvent({ type: 'token', content: trimmed, accumulated: accumulatedContent });
+          }
+        }
       }
     }
 
-    return accumulated;
+    return accumulatedContent;
   },
 };
